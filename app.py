@@ -1,0 +1,419 @@
+from pathlib import Path
+import sqlite3
+import pandas as pd
+import streamlit as st
+import datetime
+from zoneinfo import ZoneInfo
+
+# Configuración inicial de la página
+st.set_page_config(
+    page_title="GestionTamaraB - Control de Stock",
+    page_icon="📦",
+    layout="wide",
+    initial_sidebar_state="collapsed"
+)
+
+BASE_DIR = Path(__file__).resolve().parent
+DB_PATH = BASE_DIR / "inventario.db"
+LOGO_PATH = BASE_DIR / "Diseño Sin Título - 2_2.jpg"
+
+def asegurar_base_datos():
+    conexion = sqlite3.connect(DB_PATH)
+    cursor = conexion.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS productos (
+            SKU TEXT UNIQUE,
+            Descripción TEXT,
+            Stock REAL,
+            "Stock Reservado" REAL,
+            "Stock Disponible" REAL,
+            "Última Actualización" TEXT
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS controles_fisicos (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            fecha TEXT,
+            responsable TEXT,
+            sku TEXT,
+            producto TEXT,
+            talle TEXT,
+            color TEXT,
+            stock_fisico REAL,
+            stock_sistema REAL,
+            diferencia REAL,
+            fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conexion.commit()
+    conexion.close()
+
+def sincronizar_excel_automatico():
+    """Lee el Excel actualizado que sube automáticamente GitHub y refresca la base SQLite"""
+    ruta_excel = BASE_DIR / "stock_actualizado.xlsx"
+    if ruta_excel.exists():
+        try:
+            df = pd.read_excel(ruta_excel)
+            columnas_necesarias = ["SKU", "Nombre", "Stock", "Stock Reservado"]
+            
+            if all(col in df.columns for col in columnas_necesarias):
+                df_filtrado = df[columnas_necesarias].copy()
+                
+                for col in ["Stock", "Stock Reservado"]:
+                    if df_filtrado[col].dtype == object or pd.api.types.is_string_dtype(df_filtrado[col]):
+                        df_filtrado[col] = (
+                            df_filtrado[col]
+                            .astype(str)
+                            .str.replace(' ', '', regex=False)
+                            .str.replace('.', '', regex=False)
+                            .str.replace(',', '.', regex=False)
+                        )
+                        df_filtrado[col] = pd.to_numeric(df_filtrado[col], errors="coerce").fillna(0)
+                
+                df_filtrado.rename(columns={"Nombre": "Descripción"}, inplace=True)
+                df_filtrado["Stock Disponible"] = df_filtrado["Stock"] - df_filtrado["Stock Reservado"]
+                
+                hora_arg = datetime.datetime.now(ZoneInfo("America/Argentina/Buenos_Aires"))
+                df_filtrado["Última Actualización"] = hora_arg.strftime("%Y-%m-%d %H:%M:%S")
+
+                asegurar_base_datos()
+                conn = sqlite3.connect(DB_PATH)
+                df_filtrado.to_sql("productos", conn, if_exists="replace", index=False)
+                conn.close()
+        except Exception as e:
+            print(f"Error sincronizando stock automático: {e}")
+
+def cargar_datos():
+    sincronizar_excel_automatico()
+    asegurar_base_datos()
+    conexion = sqlite3.connect(DB_PATH)
+    try:
+        df = pd.read_sql("SELECT SKU, Descripción, Stock, \"Stock Reservado\", \"Stock Disponible\", \"Última Actualización\" FROM productos", conexion)
+    except Exception:
+        df = pd.DataFrame(columns=["SKU", "Descripción", "Stock", "Stock Reservado", "Stock Disponible", "Última Actualización"])
+    conexion.close()
+    return df
+
+def cargar_historial():
+    conexion = sqlite3.connect(DB_PATH)
+    try:
+        df = pd.read_sql("SELECT id AS ID, fecha AS Fecha, responsable AS Responsable, sku AS SKU, producto AS Producto, talle AS Talle, color AS Color, stock_fisico AS 'Stock Físico', stock_sistema AS 'Stock Sistema', diferencia AS Diferencia FROM controles_fisicos ORDER BY id DESC", conexion)
+    except Exception:
+        df = pd.DataFrame(columns=["ID", "Fecha", "Responsable", "SKU", "Producto", "Talle", "Color", "Stock Físico", "Stock Sistema", "Diferencia"])
+    conexion.close()
+    return df
+
+if 'lista_control' not in st.session_state:
+    st.session_state.lista_control = []
+
+# --- SISTEMA DE LOGIN PERSISTENTE POR URL ---
+query_params = st.query_params
+if "auth" in query_params and query_params["auth"] == "ok":
+    st.session_state['logueado'] = True
+
+if 'logueado' not in st.session_state:
+    st.session_state['logueado'] = False
+
+if not st.session_state['logueado']:
+    st.markdown("""
+        <style>
+            .stApp { background-color: #f8fafc; }
+            .stButton > button { background-color: #00b89f !important; color: #ffffff !important; border: none !important; border-radius: 8px !important; font-weight: 600 !important; width: 100%; padding: 12px; }
+            .stButton > button:hover { background-color: #009984 !important; }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([1, 1.2, 1])
+    with col2:
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        if LOGO_PATH.exists():
+            st.image(str(LOGO_PATH), width=None)
+        st.markdown("<h2 style='text-align: center; color: #0f172a; font-weight: 700;'>GestionTamaraB</h2>", unsafe_allow_html=True)
+        st.markdown("<p style='text-align: center; color: #64748b;'>Panel de Control de Stock</p>", unsafe_allow_html=True)
+        
+        usuario_ingresado = st.text_input("Usuario")
+        password_ingresada = st.text_input("Contraseña", type="password")
+        
+        if st.button("Iniciar Sesión"):
+            try:
+                usuarios_validos = st.secrets["passwords"]
+                if usuario_ingresado in usuarios_validos and usuarios_validos[usuario_ingresado] == password_ingresada:
+                    st.session_state['logueado'] = True
+                    st.query_params["auth"] = "ok"
+                    st.rerun()
+                else:
+                    st.error("Usuario o contraseña incorrectos.")
+            except Exception as e:
+                st.error("Configure los Secrets en Streamlit Cloud.")
+                
+        st.stop()
+
+# --- CSS PROFESIONAL ---
+st.markdown("""
+    <style>
+        .stApp { background-color: #f8fafc !important; }
+        #MainMenu {visibility: hidden;}
+        footer {visibility: hidden;}
+        header[data-testid="stHeader"] { display: none !important; }
+        [data-testid="stSidebar"] { display: none !important; }
+
+        div[data-testid="metric-container"] { 
+            background-color: #ffffff; 
+            padding: 20px; 
+            border-radius: 12px; 
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); 
+            border: 1px solid #e2e8f0;
+            border-top: 4px solid #00b89f;
+        }
+        div[data-testid="metric-container"] label { color: #64748b !important; font-size: 0.9rem !important; font-weight: 500 !important; }
+        div[data-testid="metric-container"] [data-testid="stMetricValue"] { color: #0f172a !important; font-weight: 700 !important; font-size: 1.8rem !important; }
+
+        .stButton > button { 
+            background-color: #00b89f !important; 
+            color: #ffffff !important; 
+            border: none !important; 
+            border-radius: 8px !important; 
+            font-weight: 600 !important; 
+            padding: 10px 20px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            transition: all 0.2s;
+        }
+        .stButton > button:hover { background-color: #009984 !important; transform: translateY(-1px); }
+
+        .stTabs [data-baseweb="tab-list"] {
+            gap: 8px;
+            background-color: #ffffff;
+            padding: 10px 14px;
+            border-radius: 12px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+            border: 1px solid #e2e8f0;
+        }
+        .stTabs [data-baseweb="tab"] {
+            height: 44px;
+            background-color: #f1f5f9;
+            border-radius: 8px;
+            padding: 0 24px;
+            font-weight: 600;
+            color: #475569;
+            border: 1px solid #cbd5e1;
+        }
+        .stTabs [aria-selected="true"] {
+            background-color: #00b89f !important;
+            color: #ffffff !important;
+            border-color: #009984 !important;
+        }
+
+        div[data-testid="stExpander"] {
+            background-color: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+        }
+
+        .stDataFrame {
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            background-color: #ffffff;
+            overflow: hidden;
+        }
+
+        .main h1, .main h2, .main h3, .main p, .main span, .main label { color: #0f172a !important; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important; }
+    </style>
+""", unsafe_allow_html=True)
+
+df_productos = cargar_datos()
+
+# --- CABECERA SUPERIOR ---
+col_head1, col_head2 = st.columns([5, 1])
+with col_head1:
+    st.title("📦 GestionTamaraB - Panel de Control")
+with col_head2:
+    st.markdown("<br>", unsafe_allow_html=True)
+    if st.button("🚪 Cerrar Sesión"):
+        st.session_state['logueado'] = False
+        st.query_params.clear()
+        st.rerun()
+
+st.markdown("<br>", unsafe_allow_html=True)
+
+# Se eliminó la solapa de actualización manual, quedando optimizado para automatización
+tab_dash, tab_control, tab_historial = st.tabs(["📊 Dashboard General", "📋 Control Físico de Stock", "📂 Historial de Auditorías"])
+
+# ==========================================
+# 1. SOLAPA: DASHBOARD GENERAL
+# ==========================================
+with tab_dash:
+    st.caption("ℹ️ Vista general del estado actual de la mercadería sincronizada de forma automática.")
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    if df_productos.empty:
+        st.warning("⚠️ Esperando a que el sistema automatizado sincronice el primer archivo de stock en GitHub.")
+    else:
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Total de Productos", len(df_productos))
+        with col2:
+            st.metric("Unidades en Sistema", int(df_productos['Stock'].sum()) if 'Stock' in df_productos else 0)
+        with col3:
+            ultima_act = df_productos['Última Actualización'].max() if 'Última Actualización' in df_productos else "N/A"
+            st.metric("Última Sincronización", str(ultima_act).split()[0] if isinstance(ultima_act, str) else "N/A")
+
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        
+        with st.expander("🔍 Ventana de Búsqueda y Filtros Avanzados"):
+            busqueda = st.text_input("Filtrar por SKU o Descripción:", placeholder="Escribí aquí para buscar...")
+
+        if 'busqueda' in locals() and busqueda:
+            df_filtrado = df_productos[
+                df_productos['SKU'].astype(str).str.contains(busqueda, case=False, na=False) |
+                df_productos['Descripción'].astype(str).str.contains(busqueda, case=False, na=False)
+            ]
+        else:
+            df_filtrado = df_productos
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.dataframe(df_filtrado, width='stretch', hide_index=True)
+
+# ==========================================
+# 2. SOLAPA: CONTROL FÍSICO
+# ==========================================
+with tab_control:
+    st.markdown("### Auditoría de Stock Físico")
+    st.caption("Seleccioná los productos para auditar contra el stock teórico del sistema.")
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    col_fecha, col_resp = st.columns(2)
+    with col_fecha:
+        fecha_control = st.date_input("Fecha del Control", datetime.date.today())
+    with col_resp:
+        responsable = st.text_input("Responsable del Conteo", placeholder="Ej: Tamara")
+
+    if not df_productos.empty:
+        opciones_buscador = df_productos.apply(lambda x: f"{x['Descripción']} | SKU: {x['SKU']}", axis=1).tolist()
+        opciones_buscador.insert(0, "Seleccione un producto...")
+    else:
+        opciones_buscador = ["No hay productos disponibles"]
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    with st.container():
+        st.markdown("#### ➕ Registrar Conteo de Producto")
+        with st.form("form_conteo", clear_on_submit=True):
+            col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
+            with col1:
+                producto_seleccionado = st.selectbox("Buscar Producto", opciones_buscador)
+            with col2:
+                talle_input = st.text_input("Talle")
+            with col3:
+                color_input = st.text_input("Color")
+            with col4:
+                stock_fisico_input = st.number_input("Stock Físico", min_value=0, step=1)
+                
+            st.markdown("<br>", unsafe_allow_html=True)
+            agregar_btn = st.form_submit_button("Agregar a la lista")
+            
+            if agregar_btn and producto_seleccionado != "Seleccione un producto..." and producto_seleccionado != "No hay productos disponibles":
+                partes = producto_seleccionado.split(" | SKU: ")
+                nombre_prod = partes[0]
+                sku_extraido = partes[1] if len(partes) > 1 else "Sin SKU"
+                
+                prod_info = df_productos[df_productos['SKU'].astype(str) == str(sku_extraido).strip()]
+                stock_sis = prod_info.iloc[0]['Stock'] if not prod_info.empty else 0.0
+                diferencia = stock_fisico_input - stock_sis
+                
+                st.session_state.lista_control.append({
+                    "SKU": sku_extraido,
+                    "Producto": nombre_prod,
+                    "Talle": talle_input,
+                    "Color": color_input,
+                    "Stock Físico": stock_fisico_input,
+                    "Stock Sistema": stock_sis,
+                    "Diferencia": diferencia
+                })
+                st.success(f"¡Agregado correctamente! ({nombre_prod})")
+
+    if st.session_state.lista_control:
+        st.markdown("<br><hr><br>", unsafe_allow_html=True)
+        st.markdown("### 📋 Lista Actual de Conteo")
+        df_control_actual = pd.DataFrame(st.session_state.lista_control)
+        
+        def pintar_diferencia(val):
+            color = 'green' if val == 0 else 'red'
+            return f'color: {color}; font-weight: bold;'
+        
+        st.dataframe(df_control_actual.style.map(pintar_diferencia, subset=['Diferencia']), width='stretch')
+        
+        with st.expander("⚙️ Opciones de edición y corrección de la lista actual"):
+            col_err1, col_err2, col_err3 = st.columns([2, 1, 1])
+            with col_err1:
+                opciones_borrar = [f"{i} - {item['Producto']} (Stock: {item['Stock Físico']})" for i, item in enumerate(st.session_state.lista_control)]
+                item_a_borrar = st.selectbox("Elegí cuál borrar:", opciones_borrar, label_visibility="collapsed")
+            with col_err2:
+                if st.button("❌ Borrar ítem"):
+                    if item_a_borrar:
+                        indice = int(item_a_borrar.split(" - ")[0])
+                        st.session_state.lista_control.pop(indice)
+                        st.rerun()
+            with col_err3:
+                if st.button("🧹 Vaciar todo"):
+                    st.session_state.lista_control = []
+                    st.rerun()
+                
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("💾 Guardar Planilla Definitiva en el Sistema"):
+            if not responsable:
+                st.error("Por favor, ingresá el nombre del responsable antes de guardar.")
+            else:
+                conexion = sqlite3.connect(DB_PATH)
+                cursor = conexion.cursor()
+                for item in st.session_state.lista_control:
+                    cursor.execute("""
+                        INSERT INTO controles_fisicos (fecha, responsable, sku, producto, talle, color, stock_fisico, stock_sistema, diferencia)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (str(fecha_control), responsable, item['SKU'], item['Producto'], item['Talle'], item['Color'], item['Stock Físico'], item['Stock Sistema'], item['Diferencia']))
+                conexion.commit()
+                conexion.close()
+                
+                st.session_state.lista_control = []
+                st.success("¡Planilla guardada exitosamente en el historial!")
+                st.rerun()
+
+# ==========================================
+# 3. SOLAPA: HISTORIAL
+# ==========================================
+with tab_historial:
+    st.markdown("### Historial de Auditorías Guardadas")
+    st.caption("Registro completo de los controles físicos realizados.")
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    df_historial = cargar_historial()
+    
+    if df_historial.empty:
+        st.info("No hay controles registrados todavía.")
+    else:
+        def pintar_historial(val):
+            if pd.isna(val): return ''
+            color = 'green' if val == 0 else 'red'
+            return f'color: {color}; font-weight: bold;'
+            
+        st.dataframe(df_historial.drop(columns=["ID"]).style.map(pintar_historial, subset=['Diferencia']), width='stretch', hide_index=True)
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        with st.expander("🗑️ Zona de administración: Eliminar registros del historial"):
+            opciones_borrar_historial = [f"{row['ID']} - {row['Producto']} ({row['Fecha']})" for _, row in df_historial.iterrows()]
+            opciones_borrar_historial.insert(0, "Seleccione un registro...")
+            
+            col_del1, col_del2 = st.columns([3, 1])
+            with col_del1:
+                registro_a_borrar = st.selectbox("Registro:", opciones_borrar_historial, label_visibility="collapsed")
+            with col_del2:
+                if st.button("❌ Eliminar registro"):
+                    if registro_a_borrar != "Seleccione un registro...":
+                        id_borrar = int(registro_a_borrar.split(" - ")[0])
+                        
+                        conexion = sqlite3.connect(DB_PATH)
+                        cursor = conexion.cursor()
+                        cursor.execute("DELETE FROM controles_fisicos WHERE id = ?", (id_borrar,))
+                        conexion.commit()
+                        conexion.close()
+                        
+                        st.success("¡Registro eliminado correctamente!")
+                        st.rerun()

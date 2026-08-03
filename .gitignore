@@ -1,0 +1,8 @@
+Lib/
+Include/
+Scripts/
+build/
+dist/
+__pycache__/
+*.spec
+excel/
