@@ -556,7 +556,7 @@ with tab_control:
 # ==========================================
 with tab_movimientos:
     st.markdown("### Recepción de Mercadería")
-    st.caption("Seleccioná varios productos con el buscador múltiple para añadirlos a la tabla y configurar la cantidad exacta para cada uno de ellos.")
+    st.caption("Buscá el producto (ej. 'mandil tesaria glitter'), agregalo a la lista y ajustá la cantidad con botones de más y menos.")
     st.markdown("<br>", unsafe_allow_html=True)
     
     col_mfech, col_mprov = st.columns(2)
@@ -584,29 +584,33 @@ with tab_movimientos:
     st.markdown("<br>", unsafe_allow_html=True)
 
     with st.container():
-        st.markdown("#### ➕ Buscador Múltiple para Agregar a la Planilla")
+        st.markdown("#### 🔍 Buscador Individual (Se queda agregado hasta que lo necesites)")
         
         if not df_productos.empty:
             opciones_skus_dict = {f"{row['Descripción']} | SKU: {row['SKU']} | Rubro: {row.get('Rubro', 'N/A')} | Subrubro: {row.get('Subrubro', 'N/A')}": row for _, row in df_productos.iterrows()}
-            lista_opciones_prod = list(opciones_skus_dict.keys())
+            lista_opciones_prod = ["Seleccione un producto para agregar..."] + list(opciones_skus_dict.keys())
         else:
-            lista_opciones_prod = []
+            lista_opciones_prod = ["No hay productos disponibles"]
 
-        productos_seleccionados_mult = st.multiselect("Buscador de Productos", lista_opciones_prod, placeholder="Buscá y seleccioná uno o varios productos...")
-
-        if st.button("📥 Añadir seleccionados a la planilla"):
-            if not productos_seleccionados_mult:
-                st.error("Por favor, seleccioná al menos un producto del buscador.")
-            else:
-                for prod_elegido_form in productos_seleccionados_mult:
-                    datos_prod = opciones_skus_dict[prod_elegido_form]
+        col_b_sel, col_b_btn = st.columns([3, 1])
+        with col_b_sel:
+            producto_individual_elegido = st.selectbox("Buscar Producto", lista_opciones_prod, label_visibility="collapsed")
+        with col_b_btn:
+            if st.button("➕ Agregar a la lista"):
+                if producto_individual_elegido != "Seleccione un producto para agregar..." and producto_individual_elegido != "No hay productos disponibles":
+                    datos_prod = opciones_skus_dict[producto_individual_elegido]
                     sku_val = str(datos_prod['SKU'])
                     desc_val = str(datos_prod['Descripción'])
                     rubro_val = str(datos_prod.get('Rubro', ''))
                     subrubro_val = str(datos_prod.get('Subrubro', ''))
 
-                    # Evitar duplicados exactos si ya está en la lista
-                    ya_existe = any(item['SKU'] == sku_val for item in st.session_state.tabla_recepcion_items)
+                    # Verificar si ya está en la lista para no duplicar, o agregarlo con cantidad 1
+                    ya_existe = False
+                    for item in st.session_state.tabla_recepcion_items:
+                        if item['SKU'] == sku_val:
+                            ya_existe = True
+                            break
+                    
                     if not ya_existe:
                         st.session_state.tabla_recepcion_items.append({
                             "SKU": sku_val,
@@ -617,39 +621,61 @@ with tab_movimientos:
                             "Cantidad": 1.0,
                             "Observación": ""
                         })
-                st.success("¡Productos añadidos a la planilla abajo!")
-                st.rerun()
+                        st.success(f"¡Agregado: {desc_val}!")
+                        st.rerun()
+                    else:
+                        st.warning("El producto ya se encuentra en la lista.")
 
     st.markdown("<br><hr><br>", unsafe_allow_html=True)
-    st.markdown("#### 📋 Planilla de Recepción (Editá cantidad y tipo por cada producto)")
+    st.markdown("#### 📋 Lista de Productos a Recibir (Control de Cantidades y Movimiento)")
 
     if not st.session_state.tabla_recepcion_items:
-        st.info("ℹ️ La planilla está vacía. Utilizá el buscador múltiple de arriba para incorporar mercadería.")
+        st.info("ℹ️ La lista está vacía. Buscá y agregá productos utilizando el buscador de arriba.")
     else:
-        # Convertimos la lista de sesión en un DataFrame para editar de forma interactiva con st.data_editor
-        df_editable = pd.DataFrame(st.session_state.tabla_recepcion_items)
-        
-        df_editado_resultado = st.data_editor(
-            df_editable,
-            column_config={
-                "SKU": st.column_config.TextColumn("SKU", disabled=True),
-                "Producto": st.column_config.TextColumn("Producto", disabled=True),
-                "Rubro": st.column_config.TextColumn("Rubro", disabled=True),
-                "Subrubro": st.column_config.TextColumn("Subrubro", disabled=True),
-                "Tipo": st.column_config.SelectboxColumn("Tipo", options=["Ingreso (+)", "Egreso (-)"], required=True),
-                "Cantidad": st.column_config.NumberColumn("Cantidad", min_value=1, step=1, required=True),
-                "Observación": st.column_config.TextColumn("Observación")
-            },
-            hide_index=True,
-            width='stretch',
-            key="editor_recepcion_tabla"
-        )
-        
-        # Actualizamos la sesión con los cambios hechos en el editor
-        st.session_state.tabla_recepcion_items = df_editado_resultado.to_dict(orient="records")
+        # Mostramos los elementos interactivos con botones de mas y menos
+        indices_a_borrar = []
+        for idx, item in enumerate(st.session_state.tabla_recepcion_items):
+            with st.container():
+                cols_item = st.columns([2.5, 1, 1.2, 1, 0.8, 0.6])
+                with cols_item[0]:
+                    st.markdown(f"<b>{item['Producto']}</b><br><span style='font-size:11px; color:#64748b;'>SKU: {item['SKU']} | {item['Rubro']}</span>", unsafe_allow_html=True)
+                with cols_item[1]:
+                    tipo_actual = st.selectbox("Tipo", ["Ingreso (+)", "Egreso (-)"], index=0 if item['Tipo']=="Ingreso (+)" else 1, key=f"tipo_{idx}", label_visibility="collapsed")
+                    st.session_state.tabla_recepcion_items[idx]['Tipo'] = tipo_actual
+                with cols_item[2]:
+                    # Botones de cantidad con + y -
+                    c_menos, c_cant, c_mas = st.columns([1, 1.5, 1])
+                    with c_menos:
+                        if st.button("➖", key=f"btn_menos_{idx}"):
+                            if st.session_state.tabla_recepcion_items[idx]['Cantidad'] > 1:
+                                st.session_state.tabla_recepcion_items[idx]['Cantidad'] -= 1
+                                st.rerun()
+                    with c_cant:
+                        st.markdown(f"<p style='text-align: center; font-weight: bold; margin-top: 5px;'>{int(item['Cantidad'])}</p>", unsafe_allow_html=True)
+                    with c_mas:
+                        if st.button("➕", key=f"btn_mas_{idx}"):
+                            st.session_state.tabla_recepcion_items[idx]['Cantidad'] += 1
+                            st.rerun()
+                with cols_item[3]:
+                    obs_val = st.text_input("Obs", value=item['Observación'], placeholder="Observación...", key=f"obs_{idx}", label_visibility="collapsed")
+                    st.session_state.tabla_recepcion_items[idx]['Observación'] = obs_val
+                with cols_item[4]:
+                    st.markdown(f"<span style='font-size: 12px; color: #64748b; line-height: 2.5;'>Total: <b>{int(item['Cantidad'])}</b></span>", unsafe_allow_html=True)
+                with cols_item[5]:
+                    if st.button("🗑️", key=f"del_item_{idx}"):
+                        indices_a_borrar.append(idx)
+                st.markdown("<hr style='margin: 5px 0; border-color: #f1f5f9;'>", unsafe_allow_html=True)
+
+        if indices_a_borrar:
+            for i in sorted(indices_a_borrar, reverse=True):
+                st.session_state.tabla_recepcion_items.pop(i)
+            st.rerun()
 
         st.markdown("<br>", unsafe_allow_html=True)
-        excel_bytes_rec = convertir_df_a_excel(df_editado_resultado)
+        
+        # Preparamos dataframe para descarga excel
+        df_para_excel_recepcion = pd.DataFrame(st.session_state.tabla_recepcion_items)
+        excel_bytes_rec = convertir_df_a_excel(df_para_excel_recepcion)
         st.download_button(
             label="📥 Descargar Planilla de Recepción en Excel (.xlsx)",
             data=excel_bytes_rec,
@@ -698,7 +724,7 @@ with tab_movimientos:
                 st.success(f"¡Recepción completa guardada exitosamente a las {hora_arg}!")
                 st.rerun()
         with col_acc2:
-            if st.button("🧹 Vaciar Planilla"):
+            if st.button("🧹 Vaciar Lista"):
                 st.session_state.tabla_recepcion_items = []
                 st.rerun()
 
@@ -763,7 +789,6 @@ with tab_historial:
             else:
                 df_hist_mostrar = df_historial[df_historial['Tanda_Label'] == filtro_tanda_fisica]
                 titulo_doc = f"Control_Stock_{filtro_tanda_fisica.replace(' | ', '_').replace(':', '')}"
-                # Extraemos metadatos para el cuadro superior en PDF
                 fila_meta = df_hist_mostrar.iloc[0] if not df_hist_mostrar.empty else None
                 meta_info = {
                     "fecha": f"{fila_meta['Fecha']} ({fila_meta['Hora']})",
@@ -874,7 +899,6 @@ with tab_historial:
                 df_mov_mostrar = df_mov[df_mov['Mov_Label'] == filtro_mov_tanda]
                 titulo_doc_m = f"Recepcion_{filtro_mov_tanda.replace(' | ', '_').replace(':', '')}"
                 
-                # Extraemos metadatos limpios para la cabecera superior del PDF
                 fila_meta_m = df_mov_mostrar.iloc[0] if not df_mov_mostrar.empty else None
                 meta_info_m = {
                     "fecha": f"{fila_meta_m['Fecha']} ({fila_meta_m['Hora']})",
@@ -886,7 +910,6 @@ with tab_historial:
                     "c5": fila_meta_m['Ubicación Depósito']
                 } if fila_meta_m is not None else None
 
-            # Ocultamos las columnas repetitivas de responsables en la tabla central para que quede limpia
             columnas_a_quitar = ["ID", "Mov_Label", "Conteo Inicial", "Control de Calidad", "Cotejo Remito", "Etiquetado SKU", "Ubicación Depósito"]
             df_final_hist_mov = df_mov_mostrar.drop(columns=[c for c in columnas_a_quitar if c in df_mov_mostrar.columns])
             
