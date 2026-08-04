@@ -641,7 +641,6 @@ with tab_historial:
                                 conexion.close()
                                 st.success("¡Registro eliminado!")
                                 st.rerun()
-                                
                 elif opcion_eliminacion == "Una tanda entera (por hora)":
                     sesiones_disponibles = df_historial.apply(lambda r: f"Fecha: {r['Fecha']} - Hora: {r['Hora']} - Resp: {r['Responsable']}", axis=1).unique().tolist()
                     sesiones_disponibles.insert(0, "Seleccione una tanda...")
@@ -658,52 +657,53 @@ with tab_historial:
                             conexion.close()
                             st.success("¡Tanda eliminada exitosamente!")
                             st.rerun()
-                            
                 elif opcion_eliminacion == "Un día entero completo":
-                    dias_disponibles = df_historial['Fecha'].unique().tolist()
+                    dias_disponibles = sorted(df_historial['Fecha'].unique().tolist(), reverse=True)
                     dias_disponibles.insert(0, "Seleccione un día...")
-                    dia_a_borrar = st.selectbox("Día:", dias_disponibles)
-                    if st.button("⚠️ Eliminar Día Completo"):
+                    dia_a_borrar = st.selectbox("Día a eliminar:", dias_disponibles)
+                    if st.button("💥 Eliminar Día Completo"):
                         if dia_a_borrar != "Seleccione un día...":
                             conexion = sqlite3.connect(DB_PATH)
                             cursor = conexion.cursor()
                             cursor.execute("DELETE FROM controles_fisicos WHERE fecha = ?", (dia_a_borrar,))
                             conexion.commit()
                             conexion.close()
-                            st.success(f"¡Todos los registros del día {dia_a_borrar} fueron eliminados!")
+                            st.success(f"¡Todos los controles del día {dia_a_borrar} fueron eliminados!")
                             st.rerun()
 
     else:
         st.markdown("#### 📦 Historial de Recepciones y Movimientos de Mercadería")
-        df_movimientos = cargar_historial_movimientos()
+        df_mov = cargar_historial_movimientos()
         
-        if df_movimientos.empty:
+        if df_mov.empty:
             st.info("No hay recepciones ni movimientos registrados todavía.")
         else:
-            st.dataframe(df_movimientos.drop(columns=["ID"]), width='stretch', hide_index=True)
+            df_mov['Mov_Label'] = df_mov.apply(lambda r: f"Fecha: {r['Fecha']} | Hora: {r['Hora']} | Resp: {r['Responsable']} | Prov: {r['Proveedor']}", axis=1)
+            movs_disponibles = ["Todas las recepciones"] + list(df_mov['Mov_Label'].unique())
             
+            filtro_mov_tanda = st.selectbox("🔍 Filtrar por Recepción específica:", movs_disponibles)
+            df_mov_mostrar = df_mov if filtro_mov_tanda == "Todas las recepciones" else df_mov[df_mov['Mov_Label'] == filtro_mov_tanda]
+
+            st.dataframe(df_mov_mostrar.drop(columns=["ID", "Mov_Label"]), width='stretch', hide_index=True)
+
             st.markdown("<br>", unsafe_allow_html=True)
             with st.expander("📎 Ver o descargar remitos adjuntos"):
-                remitos_disponibles = df_movimientos[df_movimientos["Remito"].notna() & (df_movimientos["Remito"] != "")]
-                if remitos_disponibles.empty:
-                    st.info("No hay remitos adjuntos en los movimientos registrados.")
+                df_con_remito = df_mov[df_mov['Remito'].notna() & (df_mov['Remito'] != "")]
+                if df_con_remito.empty:
+                    st.info("No hay remitos adjuntos en los registros actuales.")
                 else:
-                    opciones_remitos = [f"ID {row['ID']} - Fecha: {row['Fecha']} ({row['Producto']})" for _, row in remitos_disponibles.iterrows()]
+                    opciones_remitos = [f"Fecha: {r['Fecha']} | Hora: {r['Hora']} | Resp: {r['Responsable']} | Archivo: {Path(r['Remito']).name}" for _, r in df_con_remito.iterrows()]
                     remito_elegido = st.selectbox("Seleccione el remito a ver:", opciones_remitos)
                     if remito_elegido:
-                        id_mov = int(remito_elegido.split("ID ")[1].split(" - ")[0])
-                        fila_remito = remitos_disponibles[remitos_disponibles["ID"] == id_mov].iloc[0]
-                        ruta_archivo_remito = Path(fila_remito["Remito"])
-                        
-                        if ruta_archivo_remito.exists():
-                            st.write(f"**Archivo:** {ruta_archivo_remito.name}")
-                            if ruta_archivo_remito.suffix.lower() in [".png", ".jpg", ".jpeg"]:
-                                st.image(str(ruta_archivo_remito), caption="Remito Adjunto", use_column_width=True)
-                            with open(ruta_archivo_remito, "rb") as archivo_f:
-                                st.download_button(
-                                    label="📥 Descargar archivo de remito",
-                                    data=archivo_f,
-                                    file_name=ruta_archivo_remito.name
+                        idx_sel = opciones_remitos.index(remito_elegido)
+                        ruta_archivo_remito = df_con_remito.iloc[idx_sel]['Remito']
+                        if Path(ruta_archivo_remito).exists():
+                            with open(ruta_archivo_remito, "rb") as file_in:
+                                btn_download = st.download_button(
+                                    label="📥 Descargar Archivo de Remito",
+                                    data=file_in,
+                                    file_name=Path(ruta_archivo_remito).name,
+                                    mime="application/octet-stream"
                                 )
                         else:
-                            st.warning("⚠️ El archivo físico del remito no se encuentra en el servidor.")
+                            st.error("El archivo físico del remito ya no se encuentra en el servidor.")
