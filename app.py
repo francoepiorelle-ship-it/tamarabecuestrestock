@@ -273,7 +273,12 @@ with col_head2:
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-tab_dash, tab_control, tab_movimientos, tab_historial = st.tabs(["📊 Dashboard General", "📋 Control Físico (Múltiples tandas)", "📦 Recepción de Mercadería (Múltiples tandas)", "📂 Historial y Auditorías"])
+tab_dash, tab_control, tab_movimientos, tab_historial = st.tabs([
+    "📊 Dashboard General", 
+    "📋 Control de Stock", 
+    "📦 Recepción de Mercadería", 
+    "📂 Historial y Auditorías"
+])
 
 # ==========================================
 # 1. SOLAPA: DASHBOARD GENERAL
@@ -317,10 +322,10 @@ with tab_dash:
         st.dataframe(df_filtrado, width='stretch', hide_index=True)
 
 # ==========================================
-# 2. SOLAPA: CONTROL FÍSICO (MÚLTIPLES SESIONES)
+# 2. SOLAPA: CONTROL DE STOCK
 # ==========================================
 with tab_control:
-    st.markdown("### Auditoría de Stock Físico (Múltiples controles por día)")
+    st.markdown("### Control de Stock")
     st.caption("Podes realizar varios conteos en el mismo día (ej. turno mañana y turno tarde) guardándolos de forma independiente.")
     st.markdown("<br>", unsafe_allow_html=True)
     
@@ -421,10 +426,10 @@ with tab_control:
                 st.rerun()
 
 # ==========================================
-# 3. SOLAPA: RECEPCIÓN DE MERCADERÍA (MÚLTIPLES TANDAS)
+# 3. SOLAPA: RECEPCIÓN DE MERCADERÍA
 # ==========================================
 with tab_movimientos:
-    st.markdown("### Recepción de Mercadería (Múltiples tandas por día)")
+    st.markdown("### Recepción de Mercadería")
     st.caption("Podes registrar varias recepciones o envíos independientes a lo largo del día.")
     st.markdown("<br>", unsafe_allow_html=True)
     
@@ -543,15 +548,15 @@ with tab_historial:
     st.caption("Visualiza cada control o recepción de forma totalmente independiente, diferenciando las distintas tandas u horarios realizados en el mismo día.")
     st.markdown("<br>", unsafe_allow_html=True)
     
-    tipo_historial_seleccionado = st.radio("Seleccione el tipo de historial a visualizar:", ["Control Físico de Stock", "Recepción / Movimientos de Mercadería"], horizontal=True)
+    tipo_historial_seleccionado = st.radio("Seleccione el tipo de historial a visualizar:", ["Control de Stock", "Recepción / Movimientos de Mercadería"], horizontal=True)
     st.markdown("<br>", unsafe_allow_html=True)
 
-    if tipo_historial_seleccionado == "Control Físico de Stock":
-        st.markdown("#### 📋 Historial de Controles Físicos (por Tandas / Horas)")
+    if tipo_historial_seleccionado == "Control de Stock":
+        st.markdown("#### 📋 Historial de Controles de Stock (por Tandas / Horas)")
         df_historial = cargar_historial()
         
         if df_historial.empty:
-            st.info("No hay controles físicos registrados todavía.")
+            st.info("No hay controles de stock registrados todavía.")
         else:
             # Selector para separar por tandas específicas (Fecha + Hora + Responsable)
             df_historial['Tanda_Label'] = df_historial.apply(lambda r: f"Fecha: {r['Fecha']} | Hora: {r['Hora']} | Resp: {r['Responsable']}", axis=1)
@@ -689,7 +694,6 @@ with tab_historial:
                     with col_t2:
                         if st.button("🗑️ Borrar tanda entera"):
                             if tanda_a_borrar != "Seleccione una tanda...":
-                                # Extraer fecha y hora de la etiqueta
                                 partes_t = tanda_a_borrar.split(" | ")
                                 f_val = partes_t[0].replace("Fecha: ", "")
                                 h_val = partes_t[1].replace("Hora: ", "")
