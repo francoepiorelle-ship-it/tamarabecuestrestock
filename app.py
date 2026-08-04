@@ -18,6 +18,8 @@ DB_PATH = BASE_DIR / "inventario.db"
 LOGO_PATH = BASE_DIR / "Diseño Sin Título - 2_2.jpg"
 REMITOS_DIR = BASE_DIR / "remitos"
 REMITOS_DIR.mkdir(exist_ok=True)
+ETIQUETAS_DIR = BASE_DIR / "etiquetas"
+ETIQUETAS_DIR.mkdir(exist_ok=True)
 
 def asegurar_base_datos():
     conexion = sqlite3.connect(DB_PATH)
@@ -68,7 +70,6 @@ def asegurar_base_datos():
         )
     """)
     
-    # Migración por si la tabla ya existía sin la columna remito_archivo
     cursor.execute("PRAGMA table_info(movimientos_stock)")
     columnas = [col[1] for col in cursor.fetchall()]
     if "remito_archivo" not in columnas:
@@ -78,7 +79,6 @@ def asegurar_base_datos():
     conexion.close()
 
 def sincronizar_excel_automatico():
-    """Lee el Excel actualizado que sube automáticamente GitHub y refresca la base SQLite"""
     ruta_excel = BASE_DIR / "stock_actualizado.xlsx"
     if ruta_excel.exists():
         try:
@@ -153,6 +153,9 @@ if 'lista_control' not in st.session_state:
 
 if 'lista_recepcion' not in st.session_state:
     st.session_state.lista_recepcion = []
+
+if 'ultimo_movimiento_guardado' not in st.session_state:
+    st.session_state.ultimo_movimiento_guardado = []
 
 # --- SISTEMA DE LOGIN PERSISTENTE POR URL ---
 query_params = st.query_params
@@ -436,11 +439,11 @@ with tab_control:
                 st.rerun()
 
 # ==========================================
-# 3. SOLAPA: RECEPCIÓN DE MERCADERÍA (CON CARGA DE REMITO)
+# 3. SOLAPA: RECEPCIÓN DE MERCADERÍA (CON CARGA DE REMITO Y EXCEL DE ETIQUETAS)
 # ==========================================
 with tab_movimientos:
     st.markdown("### Recepción de Mercadería")
-    st.caption("Podes registrar varias recepciones o envíos independientes a lo largo del día y adjuntar el archivo/foto del remito.")
+    st.caption("Podes registrar recepciones, adjuntar el remito y al finalizar generar automáticamente el archivo CSV delimitado para tus etiquetas.")
     st.markdown("<br>", unsafe_allow_html=True)
     
     col_mfech, col_mresp = st.columns(2)
@@ -518,7 +521,6 @@ with tab_movimientos:
         st.markdown("<br><hr><br>", unsafe_allow_html=True)
         st.markdown(f"### 📋 Tanda Actual de Recepción ({fecha_recepcion_dia})")
         
-        # DataFrame temporal sin mostrar la ruta interna fea del archivo en tabla
         df_rec_mostrar_preview = pd.DataFrame(st.session_state.lista_recepcion).copy()
         if "Remito_Archivo" in df_rec_mostrar_preview.columns:
             df_rec_mostrar_preview["Tiene Remito"] = df_rec_mostrar_preview["Remito_Archivo"].apply(lambda x: "Sí 📎" if x else "No")
@@ -554,6 +556,10 @@ with tab_movimientos:
                 hora_arg = datetime.datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).strftime("%H:%M:%S")
                 conexion = sqlite3.connect(DB_PATH)
                 cursor = conexion.cursor()
+                
+                # Guardamos copia temporal en session_state para poder generar el archivo de etiquetas inmediatamente
+                st.session_state.ultimo_movimiento_guardado = list(st.session_state.lista_recepcion)
+
                 for item in st.session_state.lista_recepcion:
                     cursor.execute("""
                         INSERT INTO movimientos_stock (fecha, hora, tipo, sku, producto, proveedor, talle, color, cantidad, responsable, observacion, remito_archivo)
@@ -565,6 +571,45 @@ with tab_movimientos:
                 st.session_state.lista_recepcion = []
                 st.success(f"¡Tanda de recepción guardada exitosamente a las {hora_arg}!")
                 st.rerun()
+
+    # --- GENERAR ARCHIVO CSV PARA ETIQUETAS (BASADO EN LA ÚLTIMA TANDA GUARDADA) ---
+    if st.session_state.ultimo_movimiento_guardado:
+        st.markdown("<br><hr><br>", unsafe_allow_html=True)
+        st.markdown("### 🏷️ Generar Archivo CSV para Etiquetas")
+        st.caption("Podes descargar el archivo con formato exacto (delimitado con comillas) listo para tu impresora de etiquetas.")
+        
+        # Opción para definir cuántas etiquetas imprimir por cada producto recibido
+        tipo_cant_etiquetas = st.radio("Cantidad de etiquetas por producto:", ["Imprimir 1 etiqueta por ítem", "Imprimir tantas etiquetas como la cantidad recibida"], horizontal=True)
+        
+        filas_etiquetas = []
+        for item in st.session_state.ultimo_movimiento_guardado:
+            # Solo generamos etiquetas para los ingresos
+            if "Ingreso" in item["Tipo"]:
+                repeticiones = int(item["Cantidad"]) if tipo_cant_etiquetas == "Imprimir tantas etiquetas como la cantidad recibida" else 1
+                for _ in range(repeticiones):
+                    filas_etiquetas.append({
+                        "Producto": item["Producto"],
+                        "SKU": str(int(float(item["SKU"]))) if str(item["SKU"]).replace('.','',1).isdigit() else str(item["SKU"])
+                    })
+        
+        if filas_etiquetas:
+            df_etiquetas = pd.DataFrame(filas_etiquetas)
+            
+            # Convertimos a CSV usando quoting=1 (QUOTE_ALL o QUOTE_NONNUMERIC según requerimiento estricto, 
+            # pero para que quede exactamente como en tu foto: "PRODUCTO","SKU" utilizamos QUOTE_ALL o personalizamos)
+            csv_buffer = df_etiquetas.to_csv(index=False, header=False, encoding="utf-8-sig", quoting=1) # QUOTE_ALL encierra todo entre comillas
+            
+            timestamp_etiq = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            nombre_csv_etiquetas = f"etiquetas_{timestamp_etiq}.csv"
+            
+            st.download_button(
+                label="📥 Descargar CSV para Etiquetas",
+                data=csv_buffer,
+                file_name=nombre_csv_etiquetas,
+                mime="text/csv"
+            )
+        else:
+            st.info("No hay ingresos registrados en la última tanda para generar etiquetas.")
 
 # ==========================================
 # 4. SOLAPA: HISTORIAL Y AUDITORÍAS
@@ -684,13 +729,11 @@ with tab_historial:
                 color = 'green' if 'Ingreso' in str(val) else 'red'
                 return f'color: {color}; font-weight: bold;'
                 
-            # Mostrar tabla sin la ruta cruda del archivo
             df_tabla_visible = df_movs_mostrar.drop(columns=["ID", "Tanda_Label", "Remito"]).copy()
             df_tabla_visible["Remito Adjunto"] = df_movs_mostrar["Remito"].apply(lambda x: "Ver / Descargar 📄" if x and Path(str(x)).exists() else "Sin archivo")
             
             st.dataframe(df_tabla_visible.style.map(pintar_tipo, subset=['Tipo']), width='stretch', hide_index=True)
             
-            # --- SECCIÓN PARA VISUALIZAR O DESCARGAR REMITO DESDE EL HISTORIAL ---
             st.markdown("<br>", unsafe_allow_html=True)
             with st.expander("🔍 Ver o Descargar el Remito de un Registro"):
                 registros_con_remito = df_movs_mostrar[df_movs_mostrar["Remito"].apply(lambda x: bool(x and Path(str(x)).exists()))]
