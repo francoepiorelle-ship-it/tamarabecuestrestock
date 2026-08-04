@@ -166,7 +166,8 @@ def cargar_datos():
     asegurar_base_datos()
     conexion = sqlite3.connect(DB_PATH)
     try:
-        df = pd.read_sql("SELECT SKU, Descripción, Proveedor, Rubro, Subrubro, Stock, "Stock Reservado", "Stock Disponible", "Última Actualización" FROM productos", conexion)
+        # CORREGIDO: Se usan comillas simples internamente para los nombres de columnas
+        df = pd.read_sql('SELECT SKU, Descripción, Proveedor, Rubro, Subrubro, Stock, "Stock Reservado", "Stock Disponible", "Última Actualización" FROM productos', conexion)
     except Exception:
         df = pd.DataFrame(columns=["SKU", "Descripción", "Proveedor", "Rubro", "Subrubro", "Stock", "Stock Reservado", "Stock Disponible", "Última Actualización"])
     conexion.close()
@@ -664,31 +665,3 @@ with tab_historial:
     st.markdown("<br>", unsafe_allow_html=True)
     
     sub_tab1, sub_tab2 = st.tabs(["📋 Controles Físicos", "📦 Movimientos de Stock"])
-    
-    with sub_tab1:
-        df_hist_ctrl = cargar_historial()
-        if df_hist_ctrl.empty:
-            st.info("No hay registros de controles físicos todavía.")
-        else:
-            st.dataframe(df_hist_ctrl, use_container_width=True, hide_index=True)
-            st.markdown("<br>", unsafe_allow_html=True)
-            st.download_button(
-                label="📥 Descargar Historial de Controles (.xlsx)",
-                data=convertir_df_a_excel(df_hist_ctrl),
-                file_name="historial_controles_fisicos.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-            
-    with sub_tab2:
-        df_hist_mov = cargar_historial_movimientos()
-        if df_hist_mov.empty:
-            st.info("No hay registros de movimientos de stock todavía.")
-        else:
-            st.dataframe(df_hist_mov, use_container_width=True, hide_index=True)
-            st.markdown("<br>", unsafe_allow_html=True)
-            st.download_button(
-                label="📥 Descargar Historial de Movimientos (.xlsx)",
-                data=convertir_df_a_excel(df_hist_mov),
-                file_name="historial_movimientos_stock.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
