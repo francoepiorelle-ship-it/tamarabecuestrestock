@@ -78,6 +78,7 @@ def asegurar_base_datos():
     if "remito_archivo" not in columnas:
         cursor.execute("ALTER TABLE movimientos_stock ADD COLUMN remito_archivo TEXT")
         
+    # Verificar columnas en productos por si ya existía la tabla previa
     cursor.execute("PRAGMA table_info(productos)")
     cols_prod = [col[1] for col in cursor.fetchall()]
     if "Rubro" not in cols_prod:
@@ -93,48 +94,28 @@ def sincronizar_excel_automatico():
     if ruta_excel.exists():
         try:
             df = pd.read_excel(ruta_excel)
-            df.columns = df.columns.str.strip()
+            columnas_necesarias = ["SKU", "Nombre", "Stock", "Stock Reservado"]
             
-            col_map = {}
-            for col in df.columns:
-                col_lower = col.lower().replace(" ", "").replace("_", "").replace("-", "")
-                if col_lower in ["sku"]:
-                    col_map[col] = "SKU"
-                elif col_lower in ["nombre", "descripcion", "producto"]:
-                    col_map[col] = "Descripción"
-                elif col_lower in ["proveedor", "prov"]:
-                    col_map[col] = "Proveedor"
-                elif col_lower in ["rubro", "categoria"]:
-                    col_map[col] = "Rubro"
-                elif col_lower in ["subrubro", "subcategoria", "subrub"]:
-                    col_map[col] = "Subrubro"
-                elif col_lower in ["stock", "cantidad"]:
-                    col_map[col] = "Stock"
-                elif col_lower in ["stockreservado", "reservado"]:
-                    col_map[col] = "Stock Reservado"
-            
-            df = df.rename(columns=col_map)
-            
-            columnas_necesarias = ["SKU", "Descripción", "Stock"]
-            if all(c in df.columns for c in columnas_necesarias):
+            if all(col in df.columns for col in columnas_necesarias):
                 df_filtrado = df.copy()
                 
+                # CORREGIDO: Si no existen, se dejan vacías en vez de poner "General"
                 if "Proveedor" not in df_filtrado.columns:
-                    df_filtrado["Proveedor"] = "General"
+                    df_filtrado["Proveedor"] = ""
+                else:
+                    df_filtrado["Proveedor"] = df_filtrado["Proveedor"].fillna("").astype(str)
+
                 if "Rubro" not in df_filtrado.columns:
-                    df_filtrado["Rubro"] = "General"
+                    df_filtrado["Rubro"] = ""
                 else:
-                    df_filtrado["Rubro"] = df_filtrado["Rubro"].fillna("General")
-                    
+                    df_filtrado["Rubro"] = df_filtrado["Rubro"].fillna("").astype(str)
+
                 if "Subrubro" not in df_filtrado.columns:
-                    df_filtrado["Subrubro"] = "General"
+                    df_filtrado["Subrubro"] = ""
                 else:
-                    df_filtrado["Subrubro"] = df_filtrado["Subrubro"].fillna("General")
+                    df_filtrado["Subrubro"] = df_filtrado["Subrubro"].fillna("").astype(str)
                 
-                if "Stock Reservado" not in df_filtrado.columns:
-                    df_filtrado["Stock Reservado"] = 0
-                
-                cols_finales = ["SKU", "Descripción", "Proveedor", "Rubro", "Subrubro", "Stock", "Stock Reservado"]
+                cols_finales = ["SKU", "Nombre", "Proveedor", "Rubro", "Subrubro", "Stock", "Stock Reservado"]
                 df_filtrado = df_filtrado[[c for c in cols_finales if c in df_filtrado.columns]].copy()
                 
                 for col in ["Stock", "Stock Reservado"]:
@@ -149,6 +130,7 @@ def sincronizar_excel_automatico():
                             )
                             df_filtrado[col] = pd.to_numeric(df_filtrado[col], errors="coerce").fillna(0)
                 
+                df_filtrado.rename(columns={"Nombre": "Descripción"}, inplace=True)
                 df_filtrado["Stock Disponible"] = df_filtrado["Stock"] - df_filtrado["Stock Reservado"]
                 
                 hora_arg = datetime.datetime.now(ZoneInfo("America/Argentina/Buenos_Aires"))
@@ -166,8 +148,7 @@ def cargar_datos():
     asegurar_base_datos()
     conexion = sqlite3.connect(DB_PATH)
     try:
-        # CORREGIDO: Se usan comillas simples internamente para los nombres de columnas
-        df = pd.read_sql('SELECT SKU, Descripción, Proveedor, Rubro, Subrubro, Stock, "Stock Reservado", "Stock Disponible", "Última Actualización" FROM productos', conexion)
+        df = pd.read_sql("SELECT SKU, Descripción, Proveedor, Rubro, Subrubro, Stock, \"Stock Reservado\", \"Stock Disponible\", \"Última Actualización\" FROM productos", conexion)
     except Exception:
         df = pd.DataFrame(columns=["SKU", "Descripción", "Proveedor", "Rubro", "Subrubro", "Stock", "Stock Reservado", "Stock Disponible", "Última Actualización"])
     conexion.close()
@@ -366,10 +347,10 @@ with tab_dash:
             with f_col1:
                 busqueda = st.text_input("Filtrar por SKU o Descripción:", placeholder="Escribí aquí para buscar...")
             with f_col2:
-                proveedores_disponibles = ["Todos"] + sorted(df_productos['Proveedor'].dropna().unique().tolist()) if 'Proveedor' in df_productos.columns else ["Todos"]
+                proveedores_disponibles = ["Todos"] + sorted([p for p in df_productos['Proveedor'].dropna().unique().tolist() if p != ""]) if 'Proveedor' in df_productos.columns else ["Todos"]
                 filtro_proveedor_dash = st.selectbox("Filtrar por Proveedor:", proveedores_disponibles)
             with f_col3:
-                rubros_disponibles = ["Todos"] + sorted(df_productos['Rubro'].dropna().unique().tolist()) if 'Rubro' in df_productos.columns else ["Todos"]
+                rubros_disponibles = ["Todos"] + sorted([r for r in df_productos['Rubro'].dropna().unique().tolist() if r != ""]) if 'Rubro' in df_productos.columns else ["Todos"]
                 filtro_rubro_dash = st.selectbox("Filtrar por Rubro:", rubros_disponibles)
 
         df_filtrado = df_productos.copy()
@@ -384,7 +365,7 @@ with tab_dash:
             df_filtrado = df_filtrado[df_filtrado['Rubro'] == filtro_rubro_dash]
 
         st.markdown("<br>", unsafe_allow_html=True)
-        st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
+        st.dataframe(df_filtrado, width='stretch', hide_index=True)
 
 # ==========================================
 # 2. SOLAPA: CONTROL DE STOCK
@@ -452,7 +433,7 @@ with tab_control:
             color = 'green' if val == 0 else 'red'
             return f'color: {color}; font-weight: bold;'
         
-        st.dataframe(df_control_actual.style.map(pintar_diferencia, subset=['Diferencia']), use_container_width=True)
+        st.dataframe(df_control_actual.style.map(pintar_diferencia, subset=['Diferencia']), width='stretch')
         
         st.markdown("<br>", unsafe_allow_html=True)
         excel_bytes_ctrl = convertir_df_a_excel(df_control_actual)
@@ -514,7 +495,7 @@ with tab_movimientos:
     with col_mresp:
         responsable_recepcion = st.text_input("👤 Responsable", placeholder="Ej: Tamara", key="resp_rec_dia")
     with col_mprov:
-        lista_prov_form = sorted(df_productos['Proveedor'].dropna().unique().tolist()) if 'Proveedor' in df_productos.columns else ["General"]
+        lista_prov_form = sorted([p for p in df_productos['Proveedor'].dropna().unique().tolist() if p != ""]) if 'Proveedor' in df_productos.columns else []
         proveedor_recepcion_global = st.selectbox("📦 Proveedor de la Recepción", ["General"] + lista_prov_form, key="prov_rec_global")
 
     archivo_remito_subido = st.file_uploader("📎 Adjuntar Remito General para Toda la Planilla (Foto o PDF)", type=["png", "jpg", "jpeg", "pdf"], key="remito_masivo_subida")
@@ -526,7 +507,7 @@ with tab_movimientos:
         with st.form("form_agregar_item_recepcion", clear_on_submit=True):
             
             if not df_productos.empty:
-                opciones_skus_dict = {f"{row['Descripción']} (SKU: {row['SKU']} | Rubro: {row.get('Rubro', 'N/A')} | Subrubro: {row.get('Subrubro', 'N/A')})": row for _, row in df_productos.iterrows()}
+                opciones_skus_dict = {f"{row['Descripción']} (SKU: {row['SKU']} | Rubro: {row.get('Rubro', 'N/A')})": row for _, row in df_productos.iterrows()}
                 lista_opciones_prod = ["Seleccione un producto..."] + list(opciones_skus_dict.keys())
             else:
                 lista_opciones_prod = ["No hay productos disponibles"]
@@ -567,8 +548,8 @@ with tab_movimientos:
                         "Subrubro": subrubro_val,
                         "Tipo": tipo_mov_form,
                         "Cantidad": float(cant_form),
-                        "Talle": talle_input,
-                        "Color": color_input,
+                        "Talle": talle_form,
+                        "Color": color_form,
                         "Observación": obs_form
                     }
                     
@@ -587,10 +568,10 @@ with tab_movimientos:
     if not st.session_state.tabla_recepcion_items:
         st.info("ℹ️ La planilla está vacía. Utiliza el formulario de arriba para agregar los productos que ingresan.")
         df_mostrar_recepcion = pd.DataFrame(columns=["SKU", "Producto", "Rubro", "Subrubro", "Tipo", "Cantidad", "Talle", "Color", "Observación"])
-        st.dataframe(df_mostrar_recepcion, use_container_width=True, hide_index=True)
+        st.dataframe(df_mostrar_recepcion, width='stretch', hide_index=True)
     else:
         df_mostrar_recepcion = pd.DataFrame(st.session_state.tabla_recepcion_items)
-        st.dataframe(df_mostrar_recepcion, use_container_width=True, hide_index=True)
+        st.dataframe(df_mostrar_recepcion, width='stretch', hide_index=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
         excel_bytes_rec = convertir_df_a_excel(df_mostrar_recepcion)
@@ -651,17 +632,73 @@ with tab_movimientos:
 
     if st.session_state.ultimo_movimiento_guardado:
         st.markdown("<br><hr><br>", unsafe_allow_html=True)
-        st.markdown("#### 🏷️ Última Recepción Guardada (Etiquetas / Resumen)")
-        st.info("Aquí puedes ver los ítems ingresados recientemente para su etiquetado o control.")
-        df_ult = pd.DataFrame(st.session_state.ultimo_movimiento_guardado)
-        st.dataframe(df_ult, use_container_width=True, hide_index=True)
+        st.markdown("### 🏷️ Generar Archivo CSV para Etiquetas de esta Recepción")
+        st.caption("Podes descargar el archivo con formato exacto (delimitado con punto y coma) listo para tu impresora de etiquetas.")
+        
+        tipo_cant_etiquetas = st.radio("Cantidad de etiquetas por producto:", ["Imprimir 1 etiqueta por ítem", "Imprimir tantas etiquetas como la cantidad recibida"], horizontal=True, key="radio_etiquetas_masivo")
+        
+        filas_etiquetas = []
+        for item in st.session_state.ultimo_movimiento_guardado:
+            repeticiones = int(item["Cantidad"]) if tipo_cant_etiquetas == "Imprimir tantas etiquetas como la cantidad recibida" else 1
+            for _ in range(repeticiones):
+                filas_etiquetas.append({
+                    "Producto": item["Producto"],
+                    "SKU": str(int(float(item["SKU"]))) if str(item["SKU"]).replace('.','',1).isdigit() else str(item["SKU"])
+                })
+        
+        if filas_etiquetas:
+            df_etiquetas = pd.DataFrame(filas_etiquetas)
+            csv_buffer = df_etiquetas.to_csv(index=False, header=False, encoding="utf-8-sig", sep=";")
+            
+            timestamp_etiq = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            nombre_csv_etiquetas = f"etiquetas_{timestamp_etiq}.csv"
+            
+            st.download_button(
+                label="📥 Descargar Archivo CSV de Etiquetas",
+                data=csv_buffer,
+                file_name=nombre_csv_etiquetas,
+                mime="text/csv",
+                key="btn_descargar_csv_etiquetas"
+            )
 
 # ==========================================
 # 4. SOLAPA: HISTORIAL Y AUDITORÍAS
 # ==========================================
 with tab_historial:
     st.markdown("### Historial y Auditorías")
-    st.caption("Consulta los registros anteriores de controles físicos y movimientos de stock.")
+    st.caption("Consultá todos los registros de controles físicos de stock y movimientos/recepciones pasadas.")
     st.markdown("<br>", unsafe_allow_html=True)
     
-    sub_tab1, sub_tab2 = st.tabs(["📋 Controles Físicos", "📦 Movimientos de Stock"])
+    subtab_h1, subtab_h2 = st.tabs(["📋 Historial de Controles Físicos", "📦 Historial de Recepciones y Movimientos"])
+    
+    with subtab_h1:
+        df_hist_control = cargar_historial()
+        if df_hist_control.empty:
+            st.info("ℹ️ No hay registros de controles físicos guardados todavía.")
+        else:
+            st.dataframe(df_hist_control, width='stretch', hide_index=True)
+            st.markdown("<br>", unsafe_allow_html=True)
+            excel_bytes_hc = convertir_df_a_excel(df_hist_control)
+            st.download_button(
+                label="📥 Descargar Historial de Controles en Excel",
+                data=excel_bytes_hc,
+                file_name="historial_controles_fisicos.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="descargar_hist_controles"
+            )
+
+    with subtab_h2:
+        df_hist_mov = cargar_historial_movimientos()
+        if df_hist_mov.empty:
+            st.info("ℹ️ No hay registros de movimientos o recepciones guardados todavía.")
+        else:
+            st.dataframe(df_hist_mov, width='stretch', hide_index=True)
+            st.markdown("<br>", unsafe_allow_html=True)
+            excel_bytes_hm = convertir_df_a_excel(df_hist_mov)
+            st.download_button(
+                label="📥 Descargar Historial de Movimientos en Excel",
+                data=excel_bytes_hm,
+                file_name="historial_movimientos_stock.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="descargar_hist_movimientos"
+            )
