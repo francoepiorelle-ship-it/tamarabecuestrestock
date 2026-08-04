@@ -8,7 +8,7 @@ import io
 
 # Configuración inicial de la página
 st.set_page_config(
-    page_title="GestíonTamaraB - Control de Stock",
+    page_title="GestionTamaraB - Control de Stock",
     page_icon="📦",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -75,7 +75,6 @@ def asegurar_base_datos():
         )
     """)
     
-    # Migraciones si faltan columnas en productos
     cursor.execute("PRAGMA table_info(productos)")
     cols_prod = [col[1] for col in cursor.fetchall()]
     if "Rubro" not in cols_prod:
@@ -83,7 +82,6 @@ def asegurar_base_datos():
     if "Subrubro" not in cols_prod:
         cursor.execute("ALTER TABLE productos ADD COLUMN Subrubro TEXT")
 
-    # Migraciones si faltan columnas en movimientos_stock
     cursor.execute("PRAGMA table_info(movimientos_stock)")
     cols_mov = [col[1] for col in cursor.fetchall()]
     if "remito_archivo" not in cols_mov:
@@ -350,7 +348,7 @@ df_productos = cargar_datos()
 # --- CABECERA SUPERIOR ---
 col_head1, col_head2 = st.columns([5, 1])
 with col_head1:
-    st.title("📦 GestíonTamaraB - Panel de Control")
+    st.title("📦 GestionTamaraB - Panel de Control")
 with col_head2:
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("🚪 Cerrar Sesión"):
@@ -526,7 +524,7 @@ with tab_control:
 # ==========================================
 with tab_movimientos:
     st.markdown("### Recepción de Mercadería")
-    st.caption("La planilla comienza vacía. Utilizá el formulario de abajo para ir agregando los productos de la recepción uno a uno, indicando los responsables de cada proceso y adjuntando el remito general.")
+    st.caption("La planilla comienza vacía. Utilizá el buscador múltiple de abajo para agregar varios productos a la vez, indicando los responsables de cada proceso y adjuntando el remito general.")
     st.markdown("<br>", unsafe_allow_html=True)
     
     col_mfech, col_mprov = st.columns(2)
@@ -554,53 +552,55 @@ with tab_movimientos:
     st.markdown("<br>", unsafe_allow_html=True)
 
     with st.container():
-        st.markdown("#### ➕ Agregar Producto a la Recepción")
+        st.markdown("#### ➕ Agregar Productos a la Recepción")
         with st.form("form_agregar_item_recepcion", clear_on_submit=True):
             
             if not df_productos.empty:
                 opciones_skus_dict = {f"{row['Descripción']} | SKU: {row['SKU']} | Rubro: {row.get('Rubro', 'N/A')} | Subrubro: {row.get('Subrubro', 'N/A')}": row for _, row in df_productos.iterrows()}
-                lista_opciones_prod = ["Seleccione un producto..."] + list(opciones_skus_dict.keys())
+                lista_opciones_prod = list(opciones_skus_dict.keys())
             else:
-                lista_opciones_prod = ["No hay productos disponibles"]
+                lista_opciones_prod = []
 
-            f_col_p1, f_col_p2, f_col_p3 = st.columns([3, 1, 1])
+            # Buscador con selección múltiple
+            productos_seleccionados_mult = st.multiselect("Buscador de Productos (podés seleccionar varios)", lista_opciones_prod)
+
+            f_col_p1, f_col_p2 = st.columns(2)
             with f_col_p1:
-                prod_elegido_form = st.selectbox("Seleccionar Producto", lista_opciones_prod)
-            with f_col_p2:
                 tipo_mov_form = st.selectbox("Tipo de Movimiento", ["Ingreso (+)", "Egreso (-)"])
-            with f_col_p3:
-                cant_form = st.number_input("Cantidad", min_value=1, value=1, step=1)
+            with f_col_p2:
+                cant_form = st.number_input("Cantidad por defecto para los seleccionados", min_value=1, value=1, step=1)
 
             obs_form = st.text_input("Observación (Opcional)")
 
             st.markdown("<br>", unsafe_allow_html=True)
-            btn_agregar_a_tabla = st.form_submit_button("➕ Añadir a la planilla de recepción")
+            btn_agregar_a_tabla = st.form_submit_button("➕ Añadir seleccionados a la planilla de recepción")
 
             if btn_agregar_a_tabla:
-                if prod_elegido_form == "Seleccione un producto..." or prod_elegido_form == "No hay productos disponibles":
-                    st.error("Por favor, seleccioná un producto válido.")
+                if not productos_seleccionados_mult:
+                    st.error("Por favor, seleccioná al menos un producto del buscador.")
                 else:
-                    datos_prod = opciones_skus_dict[prod_elegido_form]
-                    sku_val = str(datos_prod['SKU'])
-                    desc_val = str(datos_prod['Descripción'])
-                    rubro_val = str(datos_prod.get('Rubro', ''))
-                    subrubro_val = str(datos_prod.get('Subrubro', ''))
-
-                    nuevo_item = {
-                        "SKU": sku_val,
-                        "Producto": desc_val,
-                        "Rubro": rubro_val,
-                        "Subrubro": subrubro_val,
-                        "Tipo": tipo_mov_form,
-                        "Cantidad": float(cant_form),
-                        "Observación": obs_form
-                    }
-                    
                     if 'tabla_recepcion_items' not in st.session_state:
                         st.session_state.tabla_recepcion_items = []
                     
-                    st.session_state.tabla_recepcion_items.append(nuevo_item)
-                    st.success("¡Producto agregado a la planilla correctamente!")
+                    for prod_elegido_form in productos_seleccionados_mult:
+                        datos_prod = opciones_skus_dict[prod_elegido_form]
+                        sku_val = str(datos_prod['SKU'])
+                        desc_val = str(datos_prod['Descripción'])
+                        rubro_val = str(datos_prod.get('Rubro', ''))
+                        subrubro_val = str(datos_prod.get('Subrubro', ''))
+
+                        nuevo_item = {
+                            "SKU": sku_val,
+                            "Producto": desc_val,
+                            "Rubro": rubro_val,
+                            "Subrubro": subrubro_val,
+                            "Tipo": tipo_mov_form,
+                            "Cantidad": float(cant_form),
+                            "Observación": obs_form
+                        }
+                        st.session_state.tabla_recepcion_items.append(nuevo_item)
+                        
+                    st.success(f"¡{len(productos_seleccionados_mult)} productos agregados a la planilla correctamente!")
 
     st.markdown("<br><hr><br>", unsafe_allow_html=True)
     st.markdown("#### 📋 Planilla de Recepción Actual")
@@ -609,7 +609,7 @@ with tab_movimientos:
         st.session_state.tabla_recepcion_items = []
 
     if not st.session_state.tabla_recepcion_items:
-        st.info("ℹ️ La planilla está vacía. Utilizá el formulario de arriba para agregar los productos que ingresan.")
+        st.info("ℹ️ La planilla está vacía. Utilizá el buscador múltiple de arriba para agregar los productos que ingresan.")
         df_mostrar_recepcion = pd.DataFrame(columns=["SKU", "Producto", "Rubro", "Subrubro", "Tipo", "Cantidad", "Observación"])
         st.dataframe(df_mostrar_recepcion, width='stretch', hide_index=True)
     else:
