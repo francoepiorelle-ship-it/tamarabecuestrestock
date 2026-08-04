@@ -156,6 +156,32 @@ def convertir_df_a_excel(df):
     processed_data = output.getvalue()
     return processed_data
 
+def convertir_df_a_html_impresion(df, titulo_reporte):
+    html = f"""
+    <html>
+        <head>
+            <title>{titulo_reporte}</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 20px; color: #0f172a; }}
+                h2 {{ text-align: center; color: #00b89f; }}
+                table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
+                th, td {{ border: 1px solid #cbd5e1; padding: 8px 12px; text-align: left; font-size: 14px; }}
+                th {{ background-color: #f1f5f9; color: #0f172a; }}
+                tr:nth-child(even) {{ background-color: #f8fafc; }}
+            </style>
+        </head>
+        <body>
+            <h2>GestionTamaraB - {titulo_reporte}</h2>
+            <p><b>Fecha de emisión:</b> {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+            {df.to_html(index=False, classes='table')}
+            <script>
+                window.onload = function() {{ window.print(); }}
+            </script>
+        </body>
+    </html>
+    """
+    return html
+
 if 'lista_control' not in st.session_state:
     st.session_state.lista_control = []
 
@@ -407,7 +433,6 @@ with tab_control:
         
         st.dataframe(df_control_actual.style.map(pintar_diferencia, subset=['Diferencia']), width='stretch')
         
-        # Opciones para exportar la planilla actual
         st.markdown("<br>", unsafe_allow_html=True)
         excel_bytes_ctrl = convertir_df_a_excel(df_control_actual)
         st.download_button(
@@ -475,7 +500,6 @@ with tab_movimientos:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # --- FORMULARIO EXTERNO PARA AGREGAR PRODUCTOS AFUERA DE LA PLANILLA ---
     with st.container():
         st.markdown("#### ➕ Agregar Producto a la Recepción")
         with st.form("form_agregar_item_recepcion", clear_on_submit=True):
@@ -543,11 +567,10 @@ with tab_movimientos:
         df_mostrar_recepcion = pd.DataFrame(st.session_state.tabla_recepcion_items)
         st.dataframe(df_mostrar_recepcion, width='stretch', hide_index=True)
 
-        # Botón para exportar e imprimir esta planilla en Excel limpio
         st.markdown("<br>", unsafe_allow_html=True)
         excel_bytes_rec = convertir_df_a_excel(df_mostrar_recepcion)
         st.download_button(
-            label="📥 Imprimir / Descargar Planilla de Recepción en Excel (.xlsx)",
+            label="📥 Descargar Planilla de Recepción en Excel (.xlsx)",
             data=excel_bytes_rec,
             file_name=f"recepcion_{fecha_recepcion_dia}.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -593,7 +616,7 @@ with tab_movimientos:
                     conexion.close()
 
                     st.session_state.ultimo_movimiento_guardado = lista_para_etiquetas
-                    st.session_state.tabla_recepcion_items = []  # Vaciar planilla tras guardar
+                    st.session_state.tabla_recepcion_items = []
                     st.success(f"¡Recepción completa guardada exitosamente a las {hora_arg}!")
                     st.rerun()
         with col_acc2:
@@ -637,7 +660,7 @@ with tab_movimientos:
 # ==========================================
 with tab_historial:
     st.markdown("### Historial y Auditorías Separadas por Tandas")
-    st.caption("Visualiza cada control o recepción de forma totalmente independiente, pudiendo exportar a Excel, ver o descargar los remitos adjuntos.")
+    st.caption("Selecciona una tanda específica o todas las planillas, y descárgalas en Excel o en formato listo para imprimir (PDF/Ventana de impresión).")
     st.markdown("<br>", unsafe_allow_html=True)
     
     tipo_historial_seleccionado = st.radio("Seleccione el tipo de historial a visualizar:", ["Control de Stock", "Recepción / Movimientos de Mercadería"], horizontal=True)
@@ -651,10 +674,16 @@ with tab_historial:
             st.info("No hay controles de stock registrados todavía.")
         else:
             df_historial['Tanda_Label'] = df_historial.apply(lambda r: f"Fecha: {r['Fecha']} | Hora: {r['Hora']} | Resp: {r['Responsable']}", axis=1)
-            tandas_fisicas_disponibles = ["Todas las tandas"] + list(df_historial['Tanda_Label'].unique())
+            tandas_fisicas_disponibles = ["Todas las tandas (Historial Completo)"] + list(df_historial['Tanda_Label'].unique())
             
-            filtro_tanda_fisica = st.selectbox("🔍 Filtrar por Tanda específica (Fecha y Hora):", tandas_fisicas_disponibles)
-            df_hist_mostrar = df_historial if filtro_tanda_fisica == "Todas las tandas" else df_historial[df_historial['Tanda_Label'] == filtro_tanda_fisica]
+            filtro_tanda_fisica = st.selectbox("🔍 Seleccionar Planilla / Tanda a visualizar o exportar:", tandas_fisicas_disponibles)
+            
+            if filtro_tanda_fisica == "Todas las tandas (Historial Completo)":
+                df_hist_mostrar = df_historial
+                titulo_doc = "Historial_Completo_Control_Stock"
+            else:
+                df_hist_mostrar = df_historial[df_historial['Tanda_Label'] == filtro_tanda_fisica]
+                titulo_doc = f"Control_Stock_{filtro_tanda_fisica.replace(' | ', '_').replace(':', '')}"
 
             def pintar_historial(val):
                 if pd.isna(val): return ''
@@ -665,14 +694,27 @@ with tab_historial:
             st.dataframe(df_final_hist_fisico.style.map(pintar_historial, subset=['Diferencia']), width='stretch', hide_index=True)
             
             st.markdown("<br>", unsafe_allow_html=True)
-            excel_bytes_hist_f = convertir_df_a_excel(df_final_hist_fisico)
-            st.download_button(
-                label="📥 Descargar Historial Filtrado en Excel (.xlsx)",
-                data=excel_bytes_hist_f,
-                file_name="historial_control_stock.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key="download_excel_hist_fisico"
-            )
+            
+            # Botones de exportación (Excel y PDF / Impresión)
+            col_exp1, col_exp2 = st.columns(2)
+            with col_exp1:
+                excel_bytes_hist_f = convertir_df_a_excel(df_final_hist_fisico)
+                st.download_button(
+                    label="📥 Descargar Planilla Seleccionada en Excel (.xlsx)",
+                    data=excel_bytes_hist_f,
+                    file_name=f"{titulo_doc}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="download_excel_hist_fisico"
+                )
+            with col_exp2:
+                html_impresion_f = convertir_df_a_html_impresion(df_final_hist_fisico, f"Control de Stock - {filtro_tanda_fisica}")
+                st.download_button(
+                    label="🖨️ Descargar / Imprimir Reporte en PDF (HTML)",
+                    data=html_impresion_f,
+                    file_name=f"{titulo_doc}.html",
+                    mime="text/html",
+                    key="download_pdf_hist_fisico"
+                )
             
             st.markdown("<br>", unsafe_allow_html=True)
             with st.expander("🗑️ Zona de administración: Eliminar tandas o registros específicos"):
@@ -734,23 +776,42 @@ with tab_historial:
             st.info("No hay recepciones ni movimientos registrados todavía.")
         else:
             df_mov['Mov_Label'] = df_mov.apply(lambda r: f"Fecha: {r['Fecha']} | Hora: {r['Hora']} | Resp: {r['Responsable']} | Prov: {r['Proveedor']}", axis=1)
-            movs_disponibles = ["Todas las recepciones"] + list(df_mov['Mov_Label'].unique())
+            movs_disponibles = ["Todas las recepciones (Historial Completo)"] + list(df_mov['Mov_Label'].unique())
             
-            filtro_mov_tanda = st.selectbox("🔍 Filtrar por Recepción específica:", movs_disponibles)
-            df_mov_mostrar = df_mov if filtro_mov_tanda == "Todas las recepciones" else df_mov[df_mov['Mov_Label'] == filtro_mov_tanda]
+            filtro_mov_tanda = st.selectbox("🔍 Seleccionar Planilla / Recepción a visualizar o exportar:", movs_disponibles)
+            
+            if filtro_mov_tanda == "Todas las recepciones (Historial Completo)":
+                df_mov_mostrar = df_mov
+                titulo_doc_m = "Historial_Completo_Recepciones"
+            else:
+                df_mov_mostrar = df_mov[df_mov['Mov_Label'] == filtro_mov_tanda]
+                titulo_doc_m = f"Recepcion_{filtro_mov_tanda.replace(' | ', '_').replace(':', '')}"
 
             df_final_hist_mov = df_mov_mostrar.drop(columns=["ID", "Mov_Label"])
             st.dataframe(df_final_hist_mov, width='stretch', hide_index=True)
 
             st.markdown("<br>", unsafe_allow_html=True)
-            excel_bytes_hist_m = convertir_df_a_excel(df_final_hist_mov)
-            st.download_button(
-                label="📥 Descargar Historial de Recepciones en Excel (.xlsx)",
-                data=excel_bytes_hist_m,
-                file_name="historial_recepciones.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                key="download_excel_hist_mov"
-            )
+            
+            # Botones de exportación (Excel y PDF / Impresión)
+            col_mexp1, col_mexp2 = st.columns(2)
+            with col_mexp1:
+                excel_bytes_hist_m = convertir_df_a_excel(df_final_hist_mov)
+                st.download_button(
+                    label="📥 Descargar Planilla Seleccionada en Excel (.xlsx)",
+                    data=excel_bytes_hist_m,
+                    file_name=f"{titulo_doc_m}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="download_excel_hist_mov"
+                )
+            with col_mexp2:
+                html_impresion_m = convertir_df_a_html_impresion(df_final_hist_mov, f"Recepción de Mercadería - {filtro_mov_tanda}")
+                st.download_button(
+                    label="🖨️ Descargar / Imprimir Reporte en PDF (HTML)",
+                    data=html_impresion_m,
+                    file_name=f"{titulo_doc_m}.html",
+                    mime="text/html",
+                    key="download_pdf_hist_mov"
+                )
 
             st.markdown("<br>", unsafe_allow_html=True)
             with st.expander("📎 Ver o descargar remitos adjuntos"):
@@ -765,7 +826,7 @@ with tab_historial:
                         ruta_archivo_remito = df_con_remito.iloc[idx_sel]['Remito']
                         if Path(ruta_archivo_remito).exists():
                             with open(ruta_archivo_remito, "rb") as file_in:
-                                btn_download = st.download_button(
+                                st.download_button(
                                     label="📥 Descargar Archivo de Remito",
                                     data=file_in,
                                     file_name=Path(ruta_archivo_remito).name,
