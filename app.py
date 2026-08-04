@@ -350,7 +350,7 @@ df_productos = cargar_datos()
 # --- CABECERA SUPERIOR ---
 col_head1, col_head2 = st.columns([5, 1])
 with col_head1:
-    st.title("📦 GestionTamaraB - Panel de Control")
+    st.title("📦 GestíonTamaraB - Panel de Control")
 with col_head2:
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("🚪 Cerrar Sesión"):
