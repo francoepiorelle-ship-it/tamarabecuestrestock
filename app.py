@@ -62,6 +62,8 @@ def asegurar_base_datos():
             tipo TEXT,
             sku TEXT,
             producto TEXT,
+            rubro TEXT,
+            subrubro TEXT,
             proveedor TEXT,
             talle TEXT,
             color TEXT,
@@ -81,10 +83,15 @@ def asegurar_base_datos():
     if "Subrubro" not in cols_prod:
         cursor.execute("ALTER TABLE productos ADD COLUMN Subrubro TEXT")
 
+    # Migraciones si faltan columnas en movimientos_stock
     cursor.execute("PRAGMA table_info(movimientos_stock)")
-    columnas = [col[1] for col in cursor.fetchall()]
-    if "remito_archivo" not in columnas:
+    cols_mov = [col[1] for col in cursor.fetchall()]
+    if "remito_archivo" not in cols_mov:
         cursor.execute("ALTER TABLE movimientos_stock ADD COLUMN remito_archivo TEXT")
+    if "rubro" not in cols_mov:
+        cursor.execute("ALTER TABLE movimientos_stock ADD COLUMN rubro TEXT")
+    if "subrubro" not in cols_mov:
+        cursor.execute("ALTER TABLE movimientos_stock ADD COLUMN subrubro TEXT")
         
     conexion.commit()
     conexion.close()
@@ -95,7 +102,7 @@ def sincronizar_excel_automatico():
         try:
             df = pd.read_excel(ruta_excel)
             
-            # Normalizar nombres de columnas (quitar espacios a los costados) para evitar descalces como 'Sub Rubro'
+            # Normalizar nombres de columnas (quitar espacios a los costados)
             df.columns = df.columns.str.strip()
             
             # Mapeo flexible por si viene como 'Sub Rubro' con espacio
@@ -107,7 +114,6 @@ def sincronizar_excel_automatico():
             if all(col in df.columns for col in columnas_necesarias):
                 df_filtrado = df.copy()
                 
-                # Asignación segura de columnas opcionales
                 if "Proveedor" not in df_filtrado.columns:
                     df_filtrado["Proveedor"] = None
                 if "Rubro" not in df_filtrado.columns:
@@ -166,9 +172,9 @@ def cargar_historial():
 def cargar_historial_movimientos():
     conexion = sqlite3.connect(DB_PATH)
     try:
-        df = pd.read_sql("SELECT id AS ID, fecha AS Fecha, hora AS Hora, tipo AS Tipo, sku AS SKU, producto AS Producto, proveedor AS Proveedor, talle AS Talle, color AS Color, cantidad AS Cantidad, responsable AS Responsable, observacion AS Observación, remito_archivo AS Remito FROM movimientos_stock ORDER BY fecha DESC, hora DESC, id DESC", conexion)
+        df = pd.read_sql("SELECT id AS ID, fecha AS Fecha, hora AS Hora, tipo AS Tipo, sku AS SKU, producto AS Producto, rubro AS Rubro, subrubro AS Subrubro, proveedor AS Proveedor, talle AS Talle, color AS Color, cantidad AS Cantidad, responsable AS Responsable, observacion AS Observación, remito_archivo AS Remito FROM movimientos_stock ORDER BY fecha DESC, hora DESC, id DESC", conexion)
     except Exception:
-        df = pd.DataFrame(columns=["ID", "Fecha", "Hora", "Tipo", "SKU", "Producto", "Proveedor", "Talle", "Color", "Cantidad", "Responsable", "Observación", "Remito"])
+        df = pd.DataFrame(columns=["ID", "Fecha", "Hora", "Tipo", "SKU", "Producto", "Rubro", "Subrubro", "Proveedor", "Talle", "Color", "Cantidad", "Responsable", "Observación", "Remito"])
     conexion.close()
     return df
 
@@ -512,7 +518,7 @@ with tab_control:
 # ==========================================
 with tab_movimientos:
     st.markdown("### Recepción de Mercadería")
-    st.caption("La planilla comienza vacía. Utiliza el formulario externo de abajo para ir agregando los productos de la recepción uno a uno, y adjunta un único remito para toda la planilla.")
+    st.caption("La planilla comienza vacía. Utiliza el formulario externo de abajo para ir agregando los productos de la recepción uno a uno, incluyendo su Rubro y Subrubro automáticamente.")
     st.markdown("<br>", unsafe_allow_html=True)
     
     col_mfech, col_mresp, col_mprov = st.columns(3)
@@ -533,12 +539,12 @@ with tab_movimientos:
         with st.form("form_agregar_item_recepcion", clear_on_submit=True):
             
             if not df_productos.empty:
-                opciones_skus_dict = {f"{row['Descripción']} (SKU: {row['SKU']})": row for _, row in df_productos.iterrows()}
+                opciones_skus_dict = {f"{row['Descripción']} | SKU: {row['SKU']} | Rubro: {row.get('Rubro', 'N/A')} | Subrubro: {row.get('Subrubro', 'N/A')}": row for _, row in df_productos.iterrows()}
                 lista_opciones_prod = ["Seleccione un producto..."] + list(opciones_skus_dict.keys())
             else:
                 lista_opciones_prod = ["No hay productos disponibles"]
 
-            f_col_p1, f_col_p2 = st.columns([2, 1])
+            f_col_p1, f_col_p2 = st.columns([3, 1])
             with f_col_p1:
                 prod_elegido_form = st.selectbox("Seleccionar Producto", lista_opciones_prod)
             with f_col_p2:
@@ -564,10 +570,14 @@ with tab_movimientos:
                     datos_prod = opciones_skus_dict[prod_elegido_form]
                     sku_val = str(datos_prod['SKU'])
                     desc_val = str(datos_prod['Descripción'])
+                    rubro_val = str(datos_prod.get('Rubro', ''))
+                    subrubro_val = str(datos_prod.get('Subrubro', ''))
 
                     nuevo_item = {
                         "SKU": sku_val,
                         "Producto": desc_val,
+                        "Rubro": rubro_val,
+                        "Subrubro": subrubro_val,
                         "Tipo": tipo_mov_form,
                         "Cantidad": float(cant_form),
                         "Talle": talle_form,
@@ -589,7 +599,7 @@ with tab_movimientos:
 
     if not st.session_state.tabla_recepcion_items:
         st.info("ℹ️ La planilla está vacía. Utiliza el formulario de arriba para agregar los productos que ingresan.")
-        df_mostrar_recepcion = pd.DataFrame(columns=["SKU", "Producto", "Tipo", "Cantidad", "Talle", "Color", "Observación"])
+        df_mostrar_recepcion = pd.DataFrame(columns=["SKU", "Producto", "Rubro", "Subrubro", "Tipo", "Cantidad", "Talle", "Color", "Observación"])
         st.dataframe(df_mostrar_recepcion, width='stretch', hide_index=True)
     else:
         df_mostrar_recepcion = pd.DataFrame(st.session_state.tabla_recepcion_items)
@@ -629,9 +639,9 @@ with tab_movimientos:
 
                     for item in st.session_state.tabla_recepcion_items:
                         cursor.execute("""
-                            INSERT INTO movimientos_stock (fecha, hora, tipo, sku, producto, proveedor, talle, color, cantidad, responsable, observacion, remito_archivo)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, (str(fecha_recepcion_dia), hora_arg, item['Tipo'], item['SKU'], item['Producto'], proveedor_recepcion_global, item['Talle'], item['Color'], item['Cantidad'], responsable_recepcion, item['Observación'], ruta_guardada))
+                            INSERT INTO movimientos_stock (fecha, hora, tipo, sku, producto, rubro, subrubro, proveedor, talle, color, cantidad, responsable, observacion, remito_archivo)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (str(fecha_recepcion_dia), hora_arg, item['Tipo'], item['SKU'], item['Producto'], item['Rubro'], item['Subrubro'], proveedor_recepcion_global, item['Talle'], item['Color'], item['Cantidad'], responsable_recepcion, item['Observación'], ruta_guardada))
 
                         if "Ingreso" in item['Tipo']:
                             lista_para_etiquetas.append({
