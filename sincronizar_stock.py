@@ -97,7 +97,7 @@ def ejecutar_sincronizacion_completa():
 
         log(f"✅ ¡Stock descargado con éxito en: {archivo_temporal}!")
 
-       # ==========================================
+# ==========================================
         # PASO 2: Actualizar Base de Datos local
         # ==========================================
         log("🔄 Actualizando base de datos local...")
@@ -111,23 +111,30 @@ def ejecutar_sincronizacion_completa():
 
             db_path = CARPETA_REPO_GITHUB / "database.db"
             
-            # 1. Rescatar los subrubros anteriores ANTES de sobrescribir
+            # 1. Rescatar los subrubros anteriores de forma segura
             subrubros_guardados = {}
             if db_path.exists():
                 try:
                     conn_temp = sqlite3.connect(db_path)
-                    query_check = "SELECT SKU, Subrubro FROM stock"
-                    df_antiguo = pd.read_sql(query_check, conn_temp)
-                    conn_temp.close()
+                    cursor_temp = conn_temp.cursor()
+                    # Verificar si la tabla stock existe y si tiene la columna Subrubro
+                    cursor_temp.execute("PRAGMA table_info(stock)")
+                    columnas_existentes = [col[1] for col in cursor_temp.fetchall()]
                     
-                    for _, row in df_antiguo.iterrows():
-                        sku = row["SKU"]
-                        subrubro = row["Subrubro"]
-                        if pd.notna(subrubro) and str(subrubro).lower() != "none":
-                            subrubros_guardados[sku] = subrubro
-                    log(f"📋 Se recuperaron {len(subrubros_guardados)} subrubros de la base anterior.")
+                    if "Subrubro" in columnas_existentes and "SKU" in columnas_existentes:
+                        query_check = "SELECT SKU, Subrubro FROM stock"
+                        df_antiguo = pd.read_sql(query_check, conn_temp)
+                        for _, row in df_antiguo.iterrows():
+                            sku = row["SKU"]
+                            subrubro = row["Subrubro"]
+                            if pd.notna(subrubro) and str(subrubro).lower() != "none":
+                                subrubros_guardados[sku] = subrubro
+                        log(f"📋 Se recuperaron {len(subrubros_guardados)} subrubros de la base anterior.")
+                    else:
+                        log("ℹ️ La tabla anterior no tenía la columna Subrubro todavía.")
+                    conn_temp.close()
                 except Exception as e:
-                    log(f"⚠️ No se pudo leer el subrubro anterior (puede ser la primera ejecución): {e}")
+                    log(f"⚠️ No se pudo leer el subrubro anterior: {e}")
 
             # 2. Rellenar la columna Subrubro si viene vacía de Contabilium
             if "Subrubro" in df_subido.columns and subrubros_guardados:
@@ -138,7 +145,7 @@ def ejecutar_sincronizacion_completa():
                     axis=1
                 )
 
-            # 3. Guardar en la base de datos YA con los subrubros recuperados
+            # 3. Guardar en la base de datos
             conn = sqlite3.connect(db_path)
             df_subido.to_sql("stock", conn, if_exists="replace", index=False)
             conn.close()
