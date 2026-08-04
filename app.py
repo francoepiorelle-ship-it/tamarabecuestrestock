@@ -4,6 +4,7 @@ import pandas as pd
 import streamlit as st
 import datetime
 from zoneinfo import ZoneInfo
+import io
 
 # Configuración inicial de la página
 st.set_page_config(
@@ -147,6 +148,13 @@ def cargar_historial_movimientos():
         df = pd.DataFrame(columns=["ID", "Fecha", "Hora", "Tipo", "SKU", "Producto", "Proveedor", "Talle", "Color", "Cantidad", "Responsable", "Observación", "Remito"])
     conexion.close()
     return df
+
+def convertir_df_a_excel(df):
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name='Planilla')
+    processed_data = output.getvalue()
+    return processed_data
 
 if 'lista_control' not in st.session_state:
     st.session_state.lista_control = []
@@ -399,6 +407,17 @@ with tab_control:
         
         st.dataframe(df_control_actual.style.map(pintar_diferencia, subset=['Diferencia']), width='stretch')
         
+        # Opciones para exportar la planilla actual
+        st.markdown("<br>", unsafe_allow_html=True)
+        excel_bytes_ctrl = convertir_df_a_excel(df_control_actual)
+        st.download_button(
+            label="📥 Descargar Tanda Actual en Excel (.xlsx)",
+            data=excel_bytes_ctrl,
+            file_name=f"control_stock_{fecha_control}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="download_excel_ctrl"
+        )
+        
         with st.expander("⚙️ Opciones de edición y corrección de la tanda actual"):
             col_err1, col_err2, col_err3 = st.columns([2, 1, 1])
             with col_err1:
@@ -440,7 +459,7 @@ with tab_control:
 # ==========================================
 with tab_movimientos:
     st.markdown("### Recepción de Mercadería")
-    st.caption("La planilla comienza vacía. Utiliza el formulario externo de abajo para ir agregando los productos de la recepción uno a uno, y cuando termines, guarda todo y genera tus etiquetas.")
+    st.caption("La planilla comienza vacía. Utiliza el formulario externo de abajo para ir agregando los productos de la recepción uno a uno, y adjunta un único remito para toda la planilla.")
     st.markdown("<br>", unsafe_allow_html=True)
     
     col_mfech, col_mresp, col_mprov = st.columns(3)
@@ -452,7 +471,7 @@ with tab_movimientos:
         lista_prov_form = sorted(df_productos['Proveedor'].dropna().unique().tolist()) if 'Proveedor' in df_productos.columns else ["General"]
         proveedor_recepcion_global = st.selectbox("📦 Proveedor de la Recepción", ["General"] + lista_prov_form, key="prov_rec_global")
 
-    archivo_remito_subido = st.file_uploader("📎 Adjuntar Remito General (Foto o PDF)", type=["png", "jpg", "jpeg", "pdf"], key="remito_masivo_subida")
+    archivo_remito_subido = st.file_uploader("📎 Adjuntar Remito General para Toda la Planilla (Foto o PDF)", type=["png", "jpg", "jpeg", "pdf"], key="remito_masivo_subida")
 
     st.markdown("<br>", unsafe_allow_html=True)
 
@@ -511,7 +530,7 @@ with tab_movimientos:
                     st.success(f"¡Producto agregado a la planilla correctamente!")
 
     st.markdown("<br><hr><br>", unsafe_allow_html=True)
-    st.markdown("#### 📋 Planilla de Recepción (Vacía o con los ítems añadidos)")
+    st.markdown("#### 📋 Planilla de Recepción Actual")
 
     if 'tabla_recepcion_items' not in st.session_state:
         st.session_state.tabla_recepcion_items = []
@@ -523,6 +542,18 @@ with tab_movimientos:
     else:
         df_mostrar_recepcion = pd.DataFrame(st.session_state.tabla_recepcion_items)
         st.dataframe(df_mostrar_recepcion, width='stretch', hide_index=True)
+
+        # Botón para exportar e imprimir esta planilla en Excel limpio
+        st.markdown("<br>", unsafe_allow_html=True)
+        excel_bytes_rec = convertir_df_a_excel(df_mostrar_recepcion)
+        st.download_button(
+            label="📥 Imprimir / Descargar Planilla de Recepción en Excel (.xlsx)",
+            data=excel_bytes_rec,
+            file_name=f"recepcion_{fecha_recepcion_dia}.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="download_excel_recepcion"
+        )
+        st.markdown("<br>", unsafe_allow_html=True)
 
         col_acc1, col_acc2 = st.columns([2, 1])
         with col_acc1:
@@ -588,7 +619,6 @@ with tab_movimientos:
         
         if filas_etiquetas:
             df_etiquetas = pd.DataFrame(filas_etiquetas)
-            # Usamos punto y coma (sep=";") para que Excel lo abra directamente separado en columnas
             csv_buffer = df_etiquetas.to_csv(index=False, header=False, encoding="utf-8-sig", sep=";")
             
             timestamp_etiq = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -607,7 +637,7 @@ with tab_movimientos:
 # ==========================================
 with tab_historial:
     st.markdown("### Historial y Auditorías Separadas por Tandas")
-    st.caption("Visualiza cada control o recepción de forma totalmente independiente, pudiendo ver o descargar los remitos adjuntos.")
+    st.caption("Visualiza cada control o recepción de forma totalmente independiente, pudiendo exportar a Excel, ver o descargar los remitos adjuntos.")
     st.markdown("<br>", unsafe_allow_html=True)
     
     tipo_historial_seleccionado = st.radio("Seleccione el tipo de historial a visualizar:", ["Control de Stock", "Recepción / Movimientos de Mercadería"], horizontal=True)
@@ -631,7 +661,18 @@ with tab_historial:
                 color = 'green' if val == 0 else 'red'
                 return f'color: {color}; font-weight: bold;'
                 
-            st.dataframe(df_hist_mostrar.drop(columns=["ID", "Tanda_Label"]).style.map(pintar_historial, subset=['Diferencia']), width='stretch', hide_index=True)
+            df_final_hist_fisico = df_hist_mostrar.drop(columns=["ID", "Tanda_Label"])
+            st.dataframe(df_final_hist_fisico.style.map(pintar_historial, subset=['Diferencia']), width='stretch', hide_index=True)
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            excel_bytes_hist_f = convertir_df_a_excel(df_final_hist_fisico)
+            st.download_button(
+                label="📥 Descargar Historial Filtrado en Excel (.xlsx)",
+                data=excel_bytes_hist_f,
+                file_name="historial_control_stock.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="download_excel_hist_fisico"
+            )
             
             st.markdown("<br>", unsafe_allow_html=True)
             with st.expander("🗑️ Zona de administración: Eliminar tandas o registros específicos"):
@@ -698,7 +739,18 @@ with tab_historial:
             filtro_mov_tanda = st.selectbox("🔍 Filtrar por Recepción específica:", movs_disponibles)
             df_mov_mostrar = df_mov if filtro_mov_tanda == "Todas las recepciones" else df_mov[df_mov['Mov_Label'] == filtro_mov_tanda]
 
-            st.dataframe(df_mov_mostrar.drop(columns=["ID", "Mov_Label"]), width='stretch', hide_index=True)
+            df_final_hist_mov = df_mov_mostrar.drop(columns=["ID", "Mov_Label"])
+            st.dataframe(df_final_hist_mov, width='stretch', hide_index=True)
+
+            st.markdown("<br>", unsafe_allow_html=True)
+            excel_bytes_hist_m = convertir_df_a_excel(df_final_hist_mov)
+            st.download_button(
+                label="📥 Descargar Historial de Recepciones en Excel (.xlsx)",
+                data=excel_bytes_hist_m,
+                file_name="historial_recepciones.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="download_excel_hist_mov"
+            )
 
             st.markdown("<br>", unsafe_allow_html=True)
             with st.expander("📎 Ver o descargar remitos adjuntos"):
