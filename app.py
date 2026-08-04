@@ -439,8 +439,8 @@ with tab_control:
 # 3. SOLAPA: RECEPCIÓN DE MERCADERÍA
 # ==========================================
 with tab_movimientos:
-    st.markdown("### Recepción de Mercadería (Carga Masiva)")
-    st.caption("Cargá todos los productos que vienen en esta recepción en una sola tabla, adjuntá el remito y guardá todo de un solo golpe.")
+    st.markdown("### Recepción de Mercadería")
+    st.caption("La planilla comienza vacía. Utiliza el formulario externo de abajo para ir agregando los productos de la recepción uno a uno, y cuando termines, guarda todo y genera tus etiquetas.")
     st.markdown("<br>", unsafe_allow_html=True)
     
     col_mfech, col_mresp, col_mprov = st.columns(3)
@@ -455,107 +455,120 @@ with tab_movimientos:
     archivo_remito_subido = st.file_uploader("📎 Adjuntar Remito General (Foto o PDF)", type=["png", "jpg", "jpeg", "pdf"], key="remito_masivo_subida")
 
     st.markdown("<br>", unsafe_allow_html=True)
-    st.markdown("#### 📝 Detalle de Artículos Recibidos")
-    st.caption("Agregá filas abajo de todo, buscá tu producto o completá la cantidad, talle y color de cada ítem que vino en el remito.")
 
-    if 'df_recepcion_masiva' not in st.session_state:
-        st.session_state.df_recepcion_masiva = pd.DataFrame(columns=[
-            "Seleccionar", "SKU", "Producto", "Tipo", "Cantidad", "Talle", "Color", "Observación"
-        ])
-
-    if st.session_state.df_recepcion_masiva.empty and not df_productos.empty:
-        filas_iniciales = []
-        for _, prod in df_productos.head(5).iterrows():
-            filas_iniciales.append({
-                "Seleccionar": False,
-                "SKU": str(prod["SKU"]),
-                "Producto": prod["Descripción"],
-                "Tipo": "Ingreso (+)",
-                "Cantidad": 1.0,
-                "Talle": "",
-                "Color": "",
-                "Observación": ""
-            })
-        st.session_state.df_recepcion_masiva = pd.DataFrame(filas_iniciales)
-
-    opciones_skus_dict = {}
-    if not df_productos.empty:
-        opciones_skus_dict = {f"{row['Descripción']} (SKU: {row['SKU']})": row['SKU'] for _, row in df_productos.iterrows()}
-
-    df_editado = st.data_editor(
-        st.session_state.df_recepcion_masiva,
-        num_rows="dynamic",
-        column_config={
-            "Seleccionar": st.column_config.CheckboxColumn("¿Incluir?", default=True),
-            "Tipo": st.column_config.SelectboxColumn("Tipo", options=["Ingreso (+)", "Egreso (-)"], required=True),
-            "Cantidad": st.column_config.NumberColumn("Cantidad", min_value=1, step=1, format="%d"),
-        },
-        use_container_width=True,
-        key="editor_recepcion_masiva"
-    )
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    col_btn1, col_btn2 = st.columns([2, 1])
-    with col_btn1:
-        guardar_recepcion_masiva_btn = st.button("💾 Guardar Recepción Completa en el Historial")
-    with col_btn2:
-        if st.button("🧹 Limpiar Tabla Actual"):
-            st.session_state.df_recepcion_masiva = pd.DataFrame(columns=[
-                "Seleccionar", "SKU", "Producto", "Tipo", "Cantidad", "Talle", "Color", "Observación"
-            ])
-            st.rerun()
-
-    if guardar_recepcion_masiva_btn:
-        if not responsable_recepcion:
-            st.error("Por favor, ingresá el nombre del responsable antes de guardar.")
-        else:
-            df_a_guardar = df_editado[df_editado["Seleccionar"] == True].copy()
+    # --- FORMULARIO EXTERNO PARA AGREGAR PRODUCTOS AFUERA DE LA PLANILLA ---
+    with st.container():
+        st.markdown("#### ➕ Agregar Producto a la Recepción")
+        with st.form("form_agregar_item_recepcion", clear_on_submit=True):
             
-            if df_a_guardar.empty:
-                st.warning("⚠️ No hay ningún producto seleccionado para guardar en esta recepción.")
+            if not df_productos.empty:
+                opciones_skus_dict = {f"{row['Descripción']} (SKU: {row['SKU']})": row for _, row in df_productos.iterrows()}
+                lista_opciones_prod = ["Seleccione un producto..."] + list(opciones_skus_dict.keys())
             else:
-                ruta_guardada = ""
-                if archivo_remito_subido is not None:
-                    timestamp_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                    nombre_archivo_seguro = f"remito_{timestamp_str}_{archivo_remito_subido.name}"
-                    ruta_completa = REMITOS_DIR / nombre_archivo_seguro
-                    with open(ruta_completa, "wb") as f:
-                        f.write(archivo_remito_subido.getbuffer())
-                    ruta_guardada = str(ruta_completa)
+                lista_opciones_prod = ["No hay productos disponibles"]
 
-                hora_arg = datetime.datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).strftime("%H:%M:%S")
-                conexion = sqlite3.connect(DB_PATH)
-                cursor = conexion.cursor()
-                
-                lista_para_etiquetas = []
+            f_col_p1, f_col_p2 = st.columns([2, 1])
+            with f_col_p1:
+                prod_elegido_form = st.selectbox("Seleccionar Producto", lista_opciones_prod)
+            with f_col_p2:
+                tipo_mov_form = st.selectbox("Tipo de Movimiento", ["Ingreso (+)", "Egreso (-)"])
 
-                for _, row in df_a_guardar.iterrows():
-                    sku_val = str(row["SKU"]) if pd.notna(row["SKU"]) else "Sin SKU"
-                    prod_val = str(row["Producto"]) if pd.notna(row["Producto"]) else "Sin Descripción"
-                    tipo_val = str(row["Tipo"])
-                    cant_val = float(row["Cantidad"]) if pd.notna(row["Cantidad"]) else 1.0
-                    talle_val = str(row["Talle"]) if pd.notna(row["Talle"]) else ""
-                    color_val = str(row["Color"]) if pd.notna(row["Color"]) else ""
-                    obs_val = str(row["Observación"]) if pd.notna(row["Observación"]) else ""
+            f_col_p3, f_col_p4, f_col_p5 = st.columns(3)
+            with f_col_p3:
+                cant_form = st.number_input("Cantidad", min_value=1, value=1, step=1)
+            with f_col_p4:
+                talle_form = st.text_input("Talle (Opcional)")
+            with f_col_p5:
+                color_form = st.text_input("Color (Opcional)")
 
-                    cursor.execute("""
-                        INSERT INTO movimientos_stock (fecha, hora, tipo, sku, producto, proveedor, talle, color, cantidad, responsable, observacion, remito_archivo)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (str(fecha_recepcion_dia), hora_arg, tipo_val, sku_val, prod_val, proveedor_recepcion_global, talle_val, color_val, cant_val, responsable_recepcion, obs_val, ruta_guardada))
+            obs_form = st.text_input("Observación (Opcional)")
 
-                    if "Ingreso" in tipo_val:
-                        lista_para_etiquetas.append({
-                            "Producto": prod_val,
-                            "SKU": sku_val,
-                            "Cantidad": cant_val
-                        })
+            st.markdown("<br>", unsafe_allow_html=True)
+            btn_agregar_a_tabla = st.form_submit_button("➕ Añadir a la planilla de recepción")
 
-                conexion.commit()
-                conexion.close()
+            if btn_agregar_a_tabla:
+                if prod_elegido_form == "Seleccione un producto..." or prod_elegido_form == "No hay productos disponibles":
+                    st.error("Por favor, seleccione un producto válido.")
+                else:
+                    datos_prod = opciones_skus_dict[prod_elegido_form]
+                    sku_val = str(datos_prod['SKU'])
+                    desc_val = str(datos_prod['Descripción'])
 
-                st.session_state.ultimo_movimiento_guardado = lista_para_etiquetas
-                st.success(f"¡Recepción completa guardada exitosamente a las {hora_arg}! Se registraron {len(df_a_guardar)} ítems juntos.")
+                    nuevo_item = {
+                        "SKU": sku_val,
+                        "Producto": desc_val,
+                        "Tipo": tipo_mov_form,
+                        "Cantidad": float(cant_form),
+                        "Talle": talle_form,
+                        "Color": color_form,
+                        "Observación": obs_form
+                    }
+                    
+                    if 'tabla_recepcion_items' not in st.session_state:
+                        st.session_state.tabla_recepcion_items = []
+                    
+                    st.session_state.tabla_recepcion_items.append(nuevo_item)
+                    st.success(f"¡Producto agregado a la planilla correctamente!")
+
+    st.markdown("<br><hr><br>", unsafe_allow_html=True)
+    st.markdown("#### 📋 Planilla de Recepción (Vacía o con los ítems añadidos)")
+
+    if 'tabla_recepcion_items' not in st.session_state:
+        st.session_state.tabla_recepcion_items = []
+
+    if not st.session_state.tabla_recepcion_items:
+        st.info("ℹ️ La planilla está vacía. Utiliza el formulario de arriba para agregar los productos que ingresan.")
+        df_mostrar_recepcion = pd.DataFrame(columns=["SKU", "Producto", "Tipo", "Cantidad", "Talle", "Color", "Observación"])
+        st.dataframe(df_mostrar_recepcion, width='stretch', hide_index=True)
+    else:
+        df_mostrar_recepcion = pd.DataFrame(st.session_state.tabla_recepcion_items)
+        st.dataframe(df_mostrar_recepcion, width='stretch', hide_index=True)
+
+        col_acc1, col_acc2 = st.columns([2, 1])
+        with col_acc1:
+            if st.button("💾 Guardar Recepción Completa en el Historial"):
+                if not responsable_recepcion:
+                    st.error("Por favor, ingresá el nombre del responsable antes de guardar.")
+                else:
+                    ruta_guardada = ""
+                    if archivo_remito_subido is not None:
+                        timestamp_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                        nombre_archivo_seguro = f"remito_{timestamp_str}_{archivo_remito_subido.name}"
+                        ruta_completa = REMITOS_DIR / nombre_archivo_seguro
+                        with open(ruta_completa, "wb") as f:
+                            f.write(archivo_remito_subido.getbuffer())
+                        ruta_guardada = str(ruta_completa)
+
+                    hora_arg = datetime.datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).strftime("%H:%M:%S")
+                    conexion = sqlite3.connect(DB_PATH)
+                    cursor = conexion.cursor()
+                    
+                    lista_para_etiquetas = []
+
+                    for item in st.session_state.tabla_recepcion_items:
+                        cursor.execute("""
+                            INSERT INTO movimientos_stock (fecha, hora, tipo, sku, producto, proveedor, talle, color, cantidad, responsable, observacion, remito_archivo)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (str(fecha_recepcion_dia), hora_arg, item['Tipo'], item['SKU'], item['Producto'], proveedor_recepcion_global, item['Talle'], item['Color'], item['Cantidad'], responsable_recepcion, item['Observación'], ruta_guardada))
+
+                        if "Ingreso" in item['Tipo']:
+                            lista_para_etiquetas.append({
+                                "Producto": item['Producto'],
+                                "SKU": item['SKU'],
+                                "Cantidad": item['Cantidad']
+                            })
+
+                    conexion.commit()
+                    conexion.close()
+
+                    st.session_state.ultimo_movimiento_guardado = lista_para_etiquetas
+                    st.session_state.tabla_recepcion_items = []  # Vaciar planilla tras guardar
+                    st.success(f"¡Recepción completa guardada exitosamente a las {hora_arg}!")
+                    st.rerun()
+        with col_acc2:
+            if st.button("🧹 Vaciar Planilla"):
+                st.session_state.tabla_recepcion_items = []
+                st.rerun()
 
     if st.session_state.ultimo_movimiento_guardado:
         st.markdown("<br><hr><br>", unsafe_allow_html=True)
