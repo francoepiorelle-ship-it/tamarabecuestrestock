@@ -97,7 +97,7 @@ def ejecutar_sincronizacion_completa():
 
         log(f"✅ ¡Stock descargado con éxito en: {archivo_temporal}!")
 
-        # ==========================================
+       # ==========================================
         # PASO 2: Actualizar Base de Datos local
         # ==========================================
         log("🔄 Actualizando base de datos local...")
@@ -110,12 +110,8 @@ def ejecutar_sincronizacion_completa():
                     df_subido[col] = ahora
 
             db_path = CARPETA_REPO_GITHUB / "database.db"
-            conn = sqlite3.connect(db_path)
-            df_subido.to_sql("stock", conn, if_exists="replace", index=False)
-            conn.close()
-            log("✅ ¡Base de datos local actualizada correctamente!")
-
-        # Rescatar los subrubros anteriores si la base de datos ya existe
+            
+            # 1. Rescatar los subrubros anteriores ANTES de sobrescribir
             subrubros_guardados = {}
             if db_path.exists():
                 try:
@@ -133,6 +129,20 @@ def ejecutar_sincronizacion_completa():
                 except Exception as e:
                     log(f"⚠️ No se pudo leer el subrubro anterior (puede ser la primera ejecución): {e}")
 
+            # 2. Rellenar la columna Subrubro si viene vacía de Contabilium
+            if "Subrubro" in df_subido.columns and subrubros_guardados:
+                df_subido["Subrubro"] = df_subido.apply(
+                    lambda row: subrubros_guardados.get(row["SKU"], row["Subrubro"]) 
+                    if pd.isna(row["Subrubro"]) or str(row["Subrubro"]).lower() == "none" 
+                    else row["Subrubro"], 
+                    axis=1
+                )
+
+            # 3. Guardar en la base de datos YA con los subrubros recuperados
+            conn = sqlite3.connect(db_path)
+            df_subido.to_sql("stock", conn, if_exists="replace", index=False)
+            conn.close()
+            log("✅ ¡Base de datos local actualizada correctamente con sus subrubros!")
         # ==========================================
         # PASO 3: Copiar archivo y subir a GitHub
         # ==========================================
