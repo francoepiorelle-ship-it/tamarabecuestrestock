@@ -16,6 +16,8 @@ st.set_page_config(
 BASE_DIR = Path(__file__).resolve().parent
 DB_PATH = BASE_DIR / "inventario.db"
 LOGO_PATH = BASE_DIR / "Diseño Sin Título - 2_2.jpg"
+REMITOS_DIR = BASE_DIR / "remitos"
+REMITOS_DIR.mkdir(exist_ok=True)
 
 def asegurar_base_datos():
     conexion = sqlite3.connect(DB_PATH)
@@ -61,9 +63,17 @@ def asegurar_base_datos():
             cantidad REAL,
             responsable TEXT,
             observacion TEXT,
+            remito_archivo TEXT,
             fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    
+    # Migración por si la tabla ya existía sin la columna remito_archivo
+    cursor.execute("PRAGMA table_info(movimientos_stock)")
+    columnas = [col[1] for col in cursor.fetchall()]
+    if "remito_archivo" not in columnas:
+        cursor.execute("ALTER TABLE movimientos_stock ADD COLUMN remito_archivo TEXT")
+        
     conexion.commit()
     conexion.close()
 
@@ -132,9 +142,9 @@ def cargar_historial():
 def cargar_historial_movimientos():
     conexion = sqlite3.connect(DB_PATH)
     try:
-        df = pd.read_sql("SELECT id AS ID, fecha AS Fecha, hora AS Hora, tipo AS Tipo, sku AS SKU, producto AS Producto, proveedor AS Proveedor, talle AS Talle, color AS Color, cantidad AS Cantidad, responsable AS Responsable, observacion AS Observación FROM movimientos_stock ORDER BY fecha DESC, hora DESC, id DESC", conexion)
+        df = pd.read_sql("SELECT id AS ID, fecha AS Fecha, hora AS Hora, tipo AS Tipo, sku AS SKU, producto AS Producto, proveedor AS Proveedor, talle AS Talle, color AS Color, cantidad AS Cantidad, responsable AS Responsable, observacion AS Observación, remito_archivo AS Remito FROM movimientos_stock ORDER BY fecha DESC, hora DESC, id DESC", conexion)
     except Exception:
-        df = pd.DataFrame(columns=["ID", "Fecha", "Hora", "Tipo", "SKU", "Producto", "Proveedor", "Talle", "Color", "Cantidad", "Responsable", "Observación"])
+        df = pd.DataFrame(columns=["ID", "Fecha", "Hora", "Tipo", "SKU", "Producto", "Proveedor", "Talle", "Color", "Cantidad", "Responsable", "Observación", "Remito"])
     conexion.close()
     return df
 
@@ -426,11 +436,11 @@ with tab_control:
                 st.rerun()
 
 # ==========================================
-# 3. SOLAPA: RECEPCIÓN DE MERCADERÍA
+# 3. SOLAPA: RECEPCIÓN DE MERCADERÍA (CON CARGA DE REMITO)
 # ==========================================
 with tab_movimientos:
     st.markdown("### Recepción de Mercadería")
-    st.caption("Podes registrar varias recepciones o envíos independientes a lo largo del día.")
+    st.caption("Podes registrar varias recepciones o envíos independientes a lo largo del día y adjuntar el archivo/foto del remito.")
     st.markdown("<br>", unsafe_allow_html=True)
     
     col_mfech, col_mresp = st.columns(2)
@@ -469,6 +479,7 @@ with tab_movimientos:
                 color_mov = st.text_input("Color")
             
             observacion_mov = st.text_input("Observación / Motivo", placeholder="Ej: Compra a proveedor / Remito X")
+            archivo_remito_subido = st.file_uploader("📎 Adjuntar Remito (Foto o PDF)", type=["png", "jpg", "jpeg", "pdf"])
             
             st.markdown("<br>", unsafe_allow_html=True)
             agregar_rec_btn = st.form_submit_button("Agregar a la tanda de recepción")
@@ -481,6 +492,15 @@ with tab_movimientos:
                 prod_match = df_productos[df_productos['SKU'].astype(str) == str(sku_p).strip()]
                 prov_p = prod_match.iloc[0]['Proveedor'] if not prod_match.empty and 'Proveedor' in prod_match.columns else "General"
 
+                ruta_guardada = ""
+                if archivo_remito_subido is not None:
+                    timestamp_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                    nombre_archivo_seguro = f"remito_{timestamp_str}_{archivo_remito_subido.name}"
+                    ruta_completa = REMITOS_DIR / nombre_archivo_seguro
+                    with open(ruta_completa, "wb") as f:
+                        f.write(archivo_remito_subido.getbuffer())
+                    ruta_guardada = str(ruta_completa)
+
                 st.session_state.lista_recepcion.append({
                     "Tipo": tipo_mov,
                     "SKU": sku_p,
@@ -489,20 +509,26 @@ with tab_movimientos:
                     "Talle": talle_mov,
                     "Color": color_mov,
                     "Cantidad": float(cantidad_mov),
-                    "Observación": observacion_mov
+                    "Observación": observacion_mov,
+                    "Remito_Archivo": ruta_guardada
                 })
                 st.success(f"¡Agregado a la tanda! ({nombre_p})")
 
     if st.session_state.lista_recepcion:
         st.markdown("<br><hr><br>", unsafe_allow_html=True)
         st.markdown(f"### 📋 Tanda Actual de Recepción ({fecha_recepcion_dia})")
-        df_rec_actual = pd.DataFrame(st.session_state.lista_recepcion)
+        
+        # DataFrame temporal sin mostrar la ruta interna fea del archivo en tabla
+        df_rec_mostrar_preview = pd.DataFrame(st.session_state.lista_recepcion).copy()
+        if "Remito_Archivo" in df_rec_mostrar_preview.columns:
+            df_rec_mostrar_preview["Tiene Remito"] = df_rec_mostrar_preview["Remito_Archivo"].apply(lambda x: "Sí 📎" if x else "No")
+            df_rec_mostrar_preview = df_rec_mostrar_preview.drop(columns=["Remito_Archivo"])
         
         def pintar_tipo_sesion(val):
             color = 'green' if 'Ingreso' in str(val) else 'red'
             return f'color: {color}; font-weight: bold;'
         
-        st.dataframe(df_rec_actual.style.map(pintar_tipo_sesion, subset=['Tipo']), width='stretch')
+        st.dataframe(df_rec_mostrar_preview.style.map(pintar_tipo_sesion, subset=['Tipo']), width='stretch')
         
         with st.expander("⚙️ Opciones de edición y corrección de la tanda actual"):
             col_err1, col_err2, col_err3 = st.columns([2, 1, 1])
@@ -530,9 +556,9 @@ with tab_movimientos:
                 cursor = conexion.cursor()
                 for item in st.session_state.lista_recepcion:
                     cursor.execute("""
-                        INSERT INTO movimientos_stock (fecha, hora, tipo, sku, producto, proveedor, talle, color, cantidad, responsable, observacion)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (str(fecha_recepcion_dia), hora_arg, item['Tipo'], item['SKU'], item['Producto'], item['Proveedor'], item['Talle'], item['Color'], item['Cantidad'], responsable_recepcion, item['Observación']))
+                        INSERT INTO movimientos_stock (fecha, hora, tipo, sku, producto, proveedor, talle, color, cantidad, responsable, observacion, remito_archivo)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (str(fecha_recepcion_dia), hora_arg, item['Tipo'], item['SKU'], item['Producto'], item['Proveedor'], item['Talle'], item['Color'], item['Cantidad'], responsable_recepcion, item['Observación'], item['Remito_Archivo']))
                 conexion.commit()
                 conexion.close()
                 
@@ -541,11 +567,11 @@ with tab_movimientos:
                 st.rerun()
 
 # ==========================================
-# 4. SOLAPA: HISTORIAL Y AUDITORÍAS (SEPARADO POR TANDAS Y HORAS)
+# 4. SOLAPA: HISTORIAL Y AUDITORÍAS
 # ==========================================
 with tab_historial:
     st.markdown("### Historial y Auditorías Separadas por Tandas")
-    st.caption("Visualiza cada control o recepción de forma totalmente independiente, diferenciando las distintas tandas u horarios realizados en el mismo día.")
+    st.caption("Visualiza cada control o recepción de forma totalmente independiente, pudiendo ver o descargar los remitos adjuntos.")
     st.markdown("<br>", unsafe_allow_html=True)
     
     tipo_historial_seleccionado = st.radio("Seleccione el tipo de historial a visualizar:", ["Control de Stock", "Recepción / Movimientos de Mercadería"], horizontal=True)
@@ -558,12 +584,10 @@ with tab_historial:
         if df_historial.empty:
             st.info("No hay controles de stock registrados todavía.")
         else:
-            # Selector para separar por tandas específicas (Fecha + Hora + Responsable)
             df_historial['Tanda_Label'] = df_historial.apply(lambda r: f"Fecha: {r['Fecha']} | Hora: {r['Hora']} | Resp: {r['Responsable']}", axis=1)
             tandas_fisicas_disponibles = ["Todas las tandas"] + list(df_historial['Tanda_Label'].unique())
             
             filtro_tanda_fisica = st.selectbox("🔍 Filtrar por Tanda específica (Fecha y Hora):", tandas_fisicas_disponibles)
-            
             df_hist_mostrar = df_historial if filtro_tanda_fisica == "Todas las tandas" else df_historial[df_historial['Tanda_Label'] == filtro_tanda_fisica]
 
             def pintar_historial(val):
@@ -660,8 +684,43 @@ with tab_historial:
                 color = 'green' if 'Ingreso' in str(val) else 'red'
                 return f'color: {color}; font-weight: bold;'
                 
-            st.dataframe(df_movs_mostrar.drop(columns=["ID", "Tanda_Label"]).style.map(pintar_tipo, subset=['Tipo']), width='stretch', hide_index=True)
+            # Mostrar tabla sin la ruta cruda del archivo
+            df_tabla_visible = df_movs_mostrar.drop(columns=["ID", "Tanda_Label", "Remito"]).copy()
+            df_tabla_visible["Remito Adjunto"] = df_movs_mostrar["Remito"].apply(lambda x: "Ver / Descargar 📄" if x and Path(str(x)).exists() else "Sin archivo")
             
+            st.dataframe(df_tabla_visible.style.map(pintar_tipo, subset=['Tipo']), width='stretch', hide_index=True)
+            
+            # --- SECCIÓN PARA VISUALIZAR O DESCARGAR REMITO DESDE EL HISTORIAL ---
+            st.markdown("<br>", unsafe_allow_html=True)
+            with st.expander("🔍 Ver o Descargar el Remito de un Registro"):
+                registros_con_remito = df_movs_mostrar[df_movs_mostrar["Remito"].apply(lambda x: bool(x and Path(str(x)).exists()))]
+                if registros_con_remito.empty:
+                    st.info("No hay remitos adjuntos en los registros filtrados actualmente.")
+                else:
+                    opciones_remitos = [f"ID {row['ID']} - [{row['Fecha']} {row['Hora']}] {row['Producto']} (Prov: {row['Proveedor']})" for _, row in registros_con_remito.iterrows()]
+                    seleccion_remito_ver = st.selectbox("Seleccioná el registro para ver su remito:", opciones_remitos)
+                    
+                    if seleccion_remito_ver:
+                        id_seleccionado = int(seleccion_remito_ver.split("ID ")[1].split(" -")[0])
+                        fila_encontrada = registros_con_remito[registros_con_remito["ID"] == id_seleccionado].iloc[0]
+                        ruta_archivo_remito = Path(fila_encontrada["Remito"])
+                        
+                        if ruta_archivo_remito.exists():
+                            st.write(f"**Observación guardada:** {fila_encontrada['Observación']}")
+                            extension = ruta_archivo_remito.suffix.lower()
+                            if extension in [".jpg", ".jpeg", ".png"]:
+                                st.image(str(ruta_archivo_remito), caption=f"Remito - ID {id_seleccionado}", use_container_width=True)
+                            elif extension == ".pdf":
+                                with open(ruta_archivo_remito, "rb") as f_pdf:
+                                    st.download_button(
+                                        label="📥 Descargar PDF del Remito",
+                                        data=f_pdf,
+                                        file_name=ruta_archivo_remito.name,
+                                        mime="application/pdf"
+                                    )
+                        else:
+                            st.warning("El archivo del remito ya no se encuentra en la carpeta del sistema.")
+
             st.markdown("<br>", unsafe_allow_html=True)
             with st.expander("🗑️ Zona de administración: Eliminar tandas o registros específicos"):
                 opcion_eliminacion_rec = st.radio("¿Qué deseas eliminar?", ["Un ítem específico de una tanda", "Una tanda entera (por hora)", "Un día entero completo"], key="del_rec")
