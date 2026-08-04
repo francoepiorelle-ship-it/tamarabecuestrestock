@@ -78,7 +78,6 @@ def asegurar_base_datos():
     if "remito_archivo" not in columnas:
         cursor.execute("ALTER TABLE movimientos_stock ADD COLUMN remito_archivo TEXT")
         
-    # Verificar columnas en productos por si ya existía la tabla previa
     cursor.execute("PRAGMA table_info(productos)")
     cols_prod = [col[1] for col in cursor.fetchall()]
     if "Rubro" not in cols_prod:
@@ -94,19 +93,51 @@ def sincronizar_excel_automatico():
     if ruta_excel.exists():
         try:
             df = pd.read_excel(ruta_excel)
-            columnas_necesarias = ["SKU", "Nombre", "Stock", "Stock Reservado"]
             
-            if all(col in df.columns for col in columnas_necesarias):
+            # Normalizar nombres de columnas del excel para evitar problemas de mayúsculas/espacios
+            df.columns = df.columns.str.strip()
+            
+            # Buscar variaciones comunes de columnas
+            col_map = {}
+            for col in df.columns:
+                col_lower = col.lower().replace(" ", "").replace("_", "").replace("-", "")
+                if col_lower in ["sku"]:
+                    col_map[col] = "SKU"
+                elif col_lower in ["nombre", "descripcion", "producto"]:
+                    col_map[col] = "Descripción"
+                elif col_lower in ["proveedor", "prov"]:
+                    col_map[col] = "Proveedor"
+                elif col_lower in ["rubro", "categoria"]:
+                    col_map[col] = "Rubro"
+                elif col_lower in ["subrubro", "subcategoria", "subrub"]:
+                    col_map[col] = "Subrubro"
+                elif col_lower in ["stock", "cantidad"]:
+                    col_map[col] = "Stock"
+                elif col_lower in ["stockreservado", "reservado"]:
+                    col_map[col] = "Stock Reservado"
+            
+            df = df.rename(columns=col_map)
+            
+            columnas_necesarias = ["SKU", "Descripción", "Stock"]
+            if all(c in df.columns for c in columnas_necesarias):
                 df_filtrado = df.copy()
                 
                 if "Proveedor" not in df_filtrado.columns:
                     df_filtrado["Proveedor"] = "General"
                 if "Rubro" not in df_filtrado.columns:
                     df_filtrado["Rubro"] = "General"
+                else:
+                    df_filtrado["Rubro"] = df_filtrado["Rubro"].fillna("General")
+                    
                 if "Subrubro" not in df_filtrado.columns:
                     df_filtrado["Subrubro"] = "General"
+                else:
+                    df_filtrado["Subrubro"] = df_filtrado["Subrubro"].fillna("General")
                 
-                cols_finales = ["SKU", "Nombre", "Proveedor", "Rubro", "Subrubro", "Stock", "Stock Reservado"]
+                if "Stock Reservado" not in df_filtrado.columns:
+                    df_filtrado["Stock Reservado"] = 0
+                
+                cols_finales = ["SKU", "Descripción", "Proveedor", "Rubro", "Subrubro", "Stock", "Stock Reservado"]
                 df_filtrado = df_filtrado[[c for c in cols_finales if c in df_filtrado.columns]].copy()
                 
                 for col in ["Stock", "Stock Reservado"]:
@@ -121,7 +152,6 @@ def sincronizar_excel_automatico():
                             )
                             df_filtrado[col] = pd.to_numeric(df_filtrado[col], errors="coerce").fillna(0)
                 
-                df_filtrado.rename(columns={"Nombre": "Descripción"}, inplace=True)
                 df_filtrado["Stock Disponible"] = df_filtrado["Stock"] - df_filtrado["Stock Reservado"]
                 
                 hora_arg = datetime.datetime.now(ZoneInfo("America/Argentina/Buenos_Aires"))
@@ -524,7 +554,7 @@ with tab_movimientos:
         with st.form("form_agregar_item_recepcion", clear_on_submit=True):
             
             if not df_productos.empty:
-                opciones_skus_dict = {f"{row['Descripción']} (SKU: {row['SKU']} | Rubro: {row.get('Rubro', 'N/A')})": row for _, row in df_productos.iterrows()}
+                opciones_skus_dict = {f"{row['Descripción']} (SKU: {row['SKU']} | Rubro: {row.get('Rubro', 'N/A')} | Subrubro: {row.get('Subrubro', 'N/A')})": row for _, row in df_productos.iterrows()}
                 lista_opciones_prod = ["Seleccione un producto..."] + list(opciones_skus_dict.keys())
             else:
                 lista_opciones_prod = ["No hay productos disponibles"]
