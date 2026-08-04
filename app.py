@@ -97,7 +97,7 @@ def cargar_datos():
 def cargar_historial():
     conexion = sqlite3.connect(DB_PATH)
     try:
-        df = pd.read_sql("SELECT id AS ID, fecha AS Fecha, responsable AS Responsable, sku AS SKU, producto AS Producto, talle AS Talle, color AS Color, stock_fisico AS 'Stock Físico', stock_sistema AS 'Stock Sistema', diferencia AS Diferencia FROM controles_fisicos ORDER BY id DESC", conexion)
+        df = pd.read_sql("SELECT id AS ID, fecha AS Fecha, responsable AS Responsable, sku AS SKU, producto AS Producto, talle AS Talle, color AS Color, stock_fisico AS 'Stock Físico', stock_sistema AS 'Stock Sistema', diferencia AS Diferencia FROM controles_fisicos ORDER BY fecha DESC, id DESC", conexion)
     except Exception:
         df = pd.DataFrame(columns=["ID", "Fecha", "Responsable", "SKU", "Producto", "Talle", "Color", "Stock Físico", "Stock Sistema", "Diferencia"])
     conexion.close()
@@ -235,8 +235,7 @@ with col_head2:
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-# Se eliminó la solapa de actualización manual, quedando optimizado para automatización
-tab_dash, tab_control, tab_historial = st.tabs(["📊 Dashboard General", "📋 Control Físico de Stock", "📂 Historial de Auditorías"])
+tab_dash, tab_control, tab_historial = st.tabs(["📊 Dashboard General", "📋 Control Físico por Día", "📂 Historial de Auditorías"])
 
 # ==========================================
 # 1. SOLAPA: DASHBOARD GENERAL
@@ -274,18 +273,19 @@ with tab_dash:
         st.dataframe(df_filtrado, width='stretch', hide_index=True)
 
 # ==========================================
-# 2. SOLAPA: CONTROL FÍSICO
+# 2. SOLAPA: CONTROL FÍSICO POR DÍA
+# =name tab_control
 # ==========================================
 with tab_control:
-    st.markdown("### Auditoría de Stock Físico")
-    st.caption("Seleccioná los productos para auditar contra el stock teórico del sistema.")
+    st.markdown("### Auditoría de Stock Físico por Jornada")
+    st.caption("Agrupá el conteo de múltiples productos realizados en un día específico y guardalos en conjunto.")
     st.markdown("<br>", unsafe_allow_html=True)
     
     col_fecha, col_resp = st.columns(2)
     with col_fecha:
-        fecha_control = st.date_input("Fecha del Control", datetime.date.today())
+        fecha_control = st.date_input("📅 Fecha del Conteo Diario", datetime.date.today())
     with col_resp:
-        responsable = st.text_input("Responsable del Conteo", placeholder="Ej: Tamara")
+        responsable = st.text_input("👤 Responsable del Conteo", placeholder="Ej: Tamara")
 
     if not df_productos.empty:
         opciones_buscador = df_productos.apply(lambda x: f"{x['Descripción']} | SKU: {x['SKU']}", axis=1).tolist()
@@ -295,8 +295,8 @@ with tab_control:
 
     st.markdown("<br>", unsafe_allow_html=True)
     with st.container():
-        st.markdown("#### ➕ Registrar Conteo de Producto")
-        with st.form("form_conteo", clear_on_submit=True):
+        st.markdown("#### ➕ Agregar Producto al Conteo del Día")
+        with st.form("form_conteo_dia", clear_on_submit=True):
             col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
             with col1:
                 producto_seleccionado = st.selectbox("Buscar Producto", opciones_buscador)
@@ -308,7 +308,7 @@ with tab_control:
                 stock_fisico_input = st.number_input("Stock Físico", min_value=0, step=1)
                 
             st.markdown("<br>", unsafe_allow_html=True)
-            agregar_btn = st.form_submit_button("Agregar a la lista")
+            agregar_btn = st.form_submit_button("Agregar a la sesión de hoy")
             
             if agregar_btn and producto_seleccionado != "Seleccione un producto..." and producto_seleccionado != "No hay productos disponibles":
                 partes = producto_seleccionado.split(" | SKU: ")
@@ -328,11 +328,11 @@ with tab_control:
                     "Stock Sistema": stock_sis,
                     "Diferencia": diferencia
                 })
-                st.success(f"¡Agregado correctamente! ({nombre_prod})")
+                st.success(f"¡Agregado a la lista del día! ({nombre_prod})")
 
     if st.session_state.lista_control:
         st.markdown("<br><hr><br>", unsafe_allow_html=True)
-        st.markdown("### 📋 Lista Actual de Conteo")
+        st.markdown(f"### 📋 Resumen de Conteo para el día: {fecha_control}")
         df_control_actual = pd.DataFrame(st.session_state.lista_control)
         
         def pintar_diferencia(val):
@@ -344,7 +344,7 @@ with tab_control:
         with st.expander("⚙️ Opciones de edición y corrección de la lista actual"):
             col_err1, col_err2, col_err3 = st.columns([2, 1, 1])
             with col_err1:
-                opciones_borrar = [f"{i} - {item['Producto']} (Stock: {item['Stock Físico']})" for i, item in enumerate(st.session_state.lista_control)]
+                opciones_borrar = [f"{i} - {item['Producto']} (Stock Físico: {item['Stock Físico']})" for i, item in enumerate(st.session_state.lista_control)]
                 item_a_borrar = st.selectbox("Elegí cuál borrar:", opciones_borrar, label_visibility="collapsed")
             with col_err2:
                 if st.button("❌ Borrar ítem"):
@@ -358,7 +358,7 @@ with tab_control:
                     st.rerun()
                 
         st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("💾 Guardar Planilla Definitiva en el Sistema"):
+        if st.button("💾 Guardar Conteo del Día en el Historial"):
             if not responsable:
                 st.error("Por favor, ingresá el nombre del responsable antes de guardar.")
             else:
@@ -373,15 +373,15 @@ with tab_control:
                 conexion.close()
                 
                 st.session_state.lista_control = []
-                st.success("¡Planilla guardada exitosamente en el historial!")
+                st.success(f"¡Conteo del día {fecha_control} guardado exitosamente en el historial!")
                 st.rerun()
 
 # ==========================================
 # 3. SOLAPA: HISTORIAL
 # ==========================================
 with tab_historial:
-    st.markdown("### Historial de Auditorías Guardadas")
-    st.caption("Registro completo de los controles físicos realizados.")
+    st.markdown("### Historial de Auditorías por Día")
+    st.caption("Registro completo de los controles físicos agrupados y ordenados por fecha.")
     st.markdown("<br>", unsafe_allow_html=True)
     
     df_historial = cargar_historial()
@@ -389,16 +389,25 @@ with tab_historial:
     if df_historial.empty:
         st.info("No hay controles registrados todavía.")
     else:
+        # Filtro opcional por Fecha en el historial
+        fechas_disponibles = ["Todas"] + list(df_historial['Fecha'].unique())
+        filtro_fecha = st.selectbox("Filtrar historial por Fecha de Conteo:", fechas_disponibles)
+        
+        if filtro_fecha != "Todas":
+            df_hist_mostrar = df_historial[df_historial['Fecha'] == filtro_fecha]
+        else:
+            df_hist_mostrar = df_historial
+
         def pintar_historial(val):
             if pd.isna(val): return ''
             color = 'green' if val == 0 else 'red'
             return f'color: {color}; font-weight: bold;'
             
-        st.dataframe(df_historial.drop(columns=["ID"]).style.map(pintar_historial, subset=['Diferencia']), width='stretch', hide_index=True)
+        st.dataframe(df_hist_mostrar.drop(columns=["ID"]).style.map(pintar_historial, subset=['Diferencia']), width='stretch', hide_index=True)
         
         st.markdown("<br>", unsafe_allow_html=True)
         with st.expander("🗑️ Zona de administración: Eliminar registros del historial"):
-            opciones_borrar_historial = [f"{row['ID']} - {row['Producto']} ({row['Fecha']})" for _, row in df_historial.iterrows()]
+            opciones_borrar_historial = [f"{row['ID']} - Fecha: {row['Fecha']} | Producto: {row['Producto']}" for _, row in df_hist_mostrar.iterrows()]
             opciones_borrar_historial.insert(0, "Seleccione un registro...")
             
             col_del1, col_del2 = st.columns([3, 1])
@@ -407,7 +416,7 @@ with tab_historial:
             with col_del2:
                 if st.button("❌ Eliminar registro"):
                     if registro_a_borrar != "Seleccione un registro...":
-                        id_borrar = int(registro_a_borrar.split(" - ")[0])
+                        id_borrar = int(registro_a_borrar.split(" - ")[0].replace("Fecha: ", ""))
                         
                         conexion = sqlite3.connect(DB_PATH)
                         cursor = conexion.cursor()
