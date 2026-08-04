@@ -93,11 +93,8 @@ def sincronizar_excel_automatico():
     if ruta_excel.exists():
         try:
             df = pd.read_excel(ruta_excel)
-            
-            # Normalizar nombres de columnas del excel para evitar problemas de mayúsculas/espacios
             df.columns = df.columns.str.strip()
             
-            # Buscar variaciones comunes de columnas
             col_map = {}
             for col in df.columns:
                 col_lower = col.lower().replace(" ", "").replace("_", "").replace("-", "")
@@ -169,7 +166,7 @@ def cargar_datos():
     asegurar_base_datos()
     conexion = sqlite3.connect(DB_PATH)
     try:
-        df = pd.read_sql("SELECT SKU, Descripción, Proveedor, Rubro, Subrubro, Stock, \"Stock Reservado\", \"Stock Disponible\", \"Última Actualización\" FROM productos", conexion)
+        df = pd.read_sql("SELECT SKU, Descripción, Proveedor, Rubro, Subrubro, Stock, "Stock Reservado", "Stock Disponible", "Última Actualización" FROM productos", conexion)
     except Exception:
         df = pd.DataFrame(columns=["SKU", "Descripción", "Proveedor", "Rubro", "Subrubro", "Stock", "Stock Reservado", "Stock Disponible", "Última Actualización"])
     conexion.close()
@@ -199,32 +196,6 @@ def convertir_df_a_excel(df):
         df.to_excel(writer, index=False, sheet_name='Planilla')
     processed_data = output.getvalue()
     return processed_data
-
-def convertir_df_a_html_impresion(df, titulo_reporte):
-    html = f"""
-    <html>
-        <head>
-            <title>{titulo_reporte}</title>
-            <style>
-                body {{ font-family: Arial, sans-serif; margin: 20px; color: #0f172a; }}
-                h2 {{ text-align: center; color: #00b89f; }}
-                table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
-                th, td {{ border: 1px solid #cbd5e1; padding: 8px 12px; text-align: left; font-size: 14px; }}
-                th {{ background-color: #f1f5f9; color: #0f172a; }}
-                tr:nth-child(even) {{ background-color: #f8fafc; }}
-            </style>
-        </head>
-        <body>
-            <h2>GestionTamaraB - {titulo_reporte}</h2>
-            <p><b>Fecha de emisión:</b> {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-            {df.to_html(index=False, classes='table')}
-            <script>
-                window.onload = function() {{ window.print(); }}
-            </script>
-        </body>
-    </html>
-    """
-    return html
 
 if 'lista_control' not in st.session_state:
     st.session_state.lista_control = []
@@ -412,7 +383,7 @@ with tab_dash:
             df_filtrado = df_filtrado[df_filtrado['Rubro'] == filtro_rubro_dash]
 
         st.markdown("<br>", unsafe_allow_html=True)
-        st.dataframe(df_filtrado, width='stretch', hide_index=True)
+        st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
 
 # ==========================================
 # 2. SOLAPA: CONTROL DE STOCK
@@ -480,7 +451,7 @@ with tab_control:
             color = 'green' if val == 0 else 'red'
             return f'color: {color}; font-weight: bold;'
         
-        st.dataframe(df_control_actual.style.map(pintar_diferencia, subset=['Diferencia']), width='stretch')
+        st.dataframe(df_control_actual.style.map(pintar_diferencia, subset=['Diferencia']), use_container_width=True)
         
         st.markdown("<br>", unsafe_allow_html=True)
         excel_bytes_ctrl = convertir_df_a_excel(df_control_actual)
@@ -595,8 +566,8 @@ with tab_movimientos:
                         "Subrubro": subrubro_val,
                         "Tipo": tipo_mov_form,
                         "Cantidad": float(cant_form),
-                        "Talle": talle_form,
-                        "Color": color_form,
+                        "Talle": talle_input,
+                        "Color": color_input,
                         "Observación": obs_form
                     }
                     
@@ -615,10 +586,10 @@ with tab_movimientos:
     if not st.session_state.tabla_recepcion_items:
         st.info("ℹ️ La planilla está vacía. Utiliza el formulario de arriba para agregar los productos que ingresan.")
         df_mostrar_recepcion = pd.DataFrame(columns=["SKU", "Producto", "Rubro", "Subrubro", "Tipo", "Cantidad", "Talle", "Color", "Observación"])
-        st.dataframe(df_mostrar_recepcion, width='stretch', hide_index=True)
+        st.dataframe(df_mostrar_recepcion, use_container_width=True, hide_index=True)
     else:
         df_mostrar_recepcion = pd.DataFrame(st.session_state.tabla_recepcion_items)
-        st.dataframe(df_mostrar_recepcion, width='stretch', hide_index=True)
+        st.dataframe(df_mostrar_recepcion, use_container_width=True, hide_index=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
         excel_bytes_rec = convertir_df_a_excel(df_mostrar_recepcion)
@@ -679,209 +650,45 @@ with tab_movimientos:
 
     if st.session_state.ultimo_movimiento_guardado:
         st.markdown("<br><hr><br>", unsafe_allow_html=True)
-        st.markdown("### 🏷️ Generar Archivo CSV para Etiquetas de esta Recepción")
-        st.caption("Podes descargar el archivo con formato exacto (delimitado con punto y coma) listo para tu impresora de etiquetas.")
-        
-        tipo_cant_etiquetas = st.radio("Cantidad de etiquetas por producto:", ["Imprimir 1 etiqueta por ítem", "Imprimir tantas etiquetas como la cantidad recibida"], horizontal=True, key="radio_etiquetas_masivo")
-        
-        filas_etiquetas = []
-        for item in st.session_state.ultimo_movimiento_guardado:
-            repeticiones = int(item["Cantidad"]) if tipo_cant_etiquetas == "Imprimir tantas etiquetas como la cantidad recibida" else 1
-            for _ in range(repeticiones):
-                filas_etiquetas.append({
-                    "Producto": item["Producto"],
-                    "SKU": str(int(float(item["SKU"]))) if str(item["SKU"]).replace('.','',1).isdigit() else str(item["SKU"])
-                })
-        
-        if filas_etiquetas:
-            df_etiquetas = pd.DataFrame(filas_etiquetas)
-            csv_buffer = df_etiquetas.to_csv(index=False, header=False, encoding="utf-8-sig", sep=";")
-            
-            timestamp_etiq = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            nombre_csv_etiquetas = f"etiquetas_{timestamp_etiq}.csv"
-            
-            st.download_button(
-                label="📥 Descargar CSV para Etiquetas",
-                data=csv_buffer,
-                file_name=nombre_csv_etiquetas,
-                mime="text/csv",
-                key="btn_descarga_csv_masivo"
-            )
+        st.markdown("#### 🏷️ Última Recepción Guardada (Etiquetas / Resumen)")
+        st.info("Aquí puedes ver los ítems ingresados recientemente para su etiquetado o control.")
+        df_ult = pd.DataFrame(st.session_state.ultimo_movimiento_guardado)
+        st.dataframe(df_ult, use_container_width=True, hide_index=True)
 
 # ==========================================
 # 4. SOLAPA: HISTORIAL Y AUDITORÍAS
 # ==========================================
 with tab_historial:
-    st.markdown("### Historial y Auditorías Separadas por Tandas")
-    st.caption("Selecciona una tanda específica o todas las planillas, y descárgalas en Excel o en formato listo para imprimir (PDF/Ventana de impresión).")
+    st.markdown("### Historial y Auditorías")
+    st.caption("Consulta los registros anteriores de controles físicos y movimientos de stock.")
     st.markdown("<br>", unsafe_allow_html=True)
     
-    tipo_historial_seleccionado = st.radio("Seleccione el tipo de historial a visualizar:", ["Control de Stock", "Recepción / Movimientos de Mercadería"], horizontal=True)
-    st.markdown("<br>", unsafe_allow_html=True)
-
-    if tipo_historial_seleccionado == "Control de Stock":
-        st.markdown("#### 📋 Historial de Controles de Stock (por Tandas / Horas)")
-        df_historial = cargar_historial()
-        
-        if df_historial.empty:
-            st.info("No hay controles de stock registrados todavía.")
+    sub_tab1, sub_tab2 = st.tabs(["📋 Controles Físicos", "📦 Movimientos de Stock"])
+    
+    with sub_tab1:
+        df_hist_ctrl = cargar_historial()
+        if df_hist_ctrl.empty:
+            st.info("No hay registros de controles físicos todavía.")
         else:
-            df_historial['Tanda_Label'] = df_historial.apply(lambda r: f"Fecha: {r['Fecha']} | Hora: {r['Hora']} | Resp: {r['Responsable']}", axis=1)
-            tandas_fisicas_disponibles = ["Todas las tandas (Historial Completo)"] + list(df_historial['Tanda_Label'].unique())
-            
-            filtro_tanda_fisica = st.selectbox("🔍 Seleccionar Planilla / Tanda a visualizar o exportar:", tandas_fisicas_disponibles)
-            
-            if filtro_tanda_fisica == "Todas las tandas (Historial Completo)":
-                df_hist_mostrar = df_historial
-                titulo_doc = "Historial_Completo_Control_Stock"
-            else:
-                df_hist_mostrar = df_historial[df_historial['Tanda_Label'] == filtro_tanda_fisica]
-                titulo_doc = f"Control_Stock_{filtro_tanda_fisica.replace(' | ', '_').replace(':', '')}"
-
-            def pintar_historial(val):
-                if pd.isna(val): return ''
-                color = 'green' if val == 0 else 'red'
-                return f'color: {color}; font-weight: bold;'
-                
-            df_final_hist_fisico = df_hist_mostrar.drop(columns=["ID", "Tanda_Label"])
-            st.dataframe(df_final_hist_fisico.style.map(pintar_historial, subset=['Diferencia']), width='stretch', hide_index=True)
-            
+            st.dataframe(df_hist_ctrl, use_container_width=True, hide_index=True)
             st.markdown("<br>", unsafe_allow_html=True)
+            st.download_button(
+                label="📥 Descargar Historial de Controles (.xlsx)",
+                data=convertir_df_a_excel(df_hist_ctrl),
+                file_name="historial_controles_fisicos.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
             
-            col_exp1, col_exp2 = st.columns(2)
-            with col_exp1:
-                excel_bytes_hist_f = convertir_df_a_excel(df_final_hist_fisico)
-                st.download_button(
-                    label="📥 Descargar Planilla Seleccionada en Excel (.xlsx)",
-                    data=excel_bytes_hist_f,
-                    file_name=f"{titulo_doc}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="download_excel_hist_fisico"
-                )
-            with col_exp2:
-                html_impresion_f = convertir_df_a_html_impresion(df_final_hist_fisico, f"Control de Stock - {filtro_tanda_fisica}")
-                st.download_button(
-                    label="🖨️ Descargar / Imprimir Reporte en PDF (HTML)",
-                    data=html_impresion_f,
-                    file_name=f"{titulo_doc}.html",
-                    mime="text/html",
-                    key="download_pdf_hist_fisico"
-                )
-            
-            st.markdown("<br>", unsafe_allow_html=True)
-            with st.expander("🗑️ Zona de administración: Eliminar tandas o registros específicos"):
-                opcion_eliminacion = st.radio("¿Qué deseas eliminar?", ["Un ítem específico de una tanda", "Una tanda entera (por hora)", "Un día entero completo"], key="del_fisico")
-                
-                if opcion_eliminacion == "Un ítem específico de una tanda":
-                    opciones_borrar_historial = [f"{row['ID']} - [{row['Fecha']} {row['Hora']}] {row['Producto']}" for _, row in df_hist_mostrar.iterrows()]
-                    opciones_borrar_historial.insert(0, "Seleccione un registro...")
-                    
-                    col_del1, col_del2 = st.columns([3, 1])
-                    with col_del1:
-                        registro_a_borrar = st.selectbox("Registro:", opciones_borrar_historial, label_visibility="collapsed")
-                    with col_del2:
-                        if st.button("❌ Eliminar ítem"):
-                            if registro_a_borrar != "Seleccione un registro...":
-                                id_borrar = int(registro_a_borrar.split(" - ")[0])
-                                conexion = sqlite3.connect(DB_PATH)
-                                cursor = conexion.cursor()
-                                cursor.execute("DELETE FROM controles_fisicos WHERE id = ?", (id_borrar,))
-                                conexion.commit()
-                                conexion.close()
-                                st.success("¡Registro eliminado!")
-                                st.rerun()
-                elif opcion_eliminacion == "Una tanda entera (por hora)":
-                    sesiones_disponibles = df_historial.apply(lambda r: f"Fecha: {r['Fecha']} - Hora: {r['Hora']} - Resp: {r['Responsable']}", axis=1).unique().tolist()
-                    sesiones_disponibles.insert(0, "Seleccione una tanda...")
-                    tanda_a_borrar = st.selectbox("Tanda:", sesiones_disponibles)
-                    if st.button("🗑️ Eliminar Tanda Entera"):
-                        if tanda_a_borrar != "Seleccione una tanda...":
-                            partes = tanda_a_borrar.split(" - ")
-                            f_val = partes[0].replace("Fecha: ", "")
-                            h_val = partes[1].replace("Hora: ", "")
-                            conexion = sqlite3.connect(DB_PATH)
-                            cursor = conexion.cursor()
-                            cursor.execute("DELETE FROM controles_fisicos WHERE fecha = ? AND hora = ?", (f_val, h_val))
-                            conexion.commit()
-                            conexion.close()
-                            st.success("¡Tanda eliminada exitosamente!")
-                            st.rerun()
-                elif opcion_eliminacion == "Un día entero completo":
-                    dias_disponibles = sorted(df_historial['Fecha'].unique().tolist(), reverse=True)
-                    dias_disponibles.insert(0, "Seleccione un día...")
-                    dia_a_borrar = st.selectbox("Día a eliminar:", dias_disponibles)
-                    if st.button("💥 Eliminar Día Completo"):
-                        if dia_a_borrar != "Seleccione un día...":
-                            conexion = sqlite3.connect(DB_PATH)
-                            cursor = conexion.cursor()
-                            cursor.execute("DELETE FROM controles_fisicos WHERE fecha = ?", (dia_a_borrar,))
-                            conexion.commit()
-                            conexion.close()
-                            st.success(f"¡Todos los controles del día {dia_a_borrar} fueron eliminados!")
-                            st.rerun()
-
-    else:
-        st.markdown("#### 📦 Historial de Recepciones y Movimientos de Mercadería")
-        df_mov = cargar_historial_movimientos()
-        
-        if df_mov.empty:
-            st.info("No hay recepciones ni movimientos registrados todavía.")
+    with sub_tab2:
+        df_hist_mov = cargar_historial_movimientos()
+        if df_hist_mov.empty:
+            st.info("No hay registros de movimientos de stock todavía.")
         else:
-            df_mov['Mov_Label'] = df_mov.apply(lambda r: f"Fecha: {r['Fecha']} | Hora: {r['Hora']} | Resp: {r['Responsable']} | Prov: {r['Proveedor']}", axis=1)
-            movs_disponibles = ["Todas las recepciones (Historial Completo)"] + list(df_mov['Mov_Label'].unique())
-            
-            filtro_mov_tanda = st.selectbox("🔍 Seleccionar Planilla / Recepción a visualizar o exportar:", movs_disponibles)
-            
-            if filtro_mov_tanda == "Todas las recepciones (Historial Completo)":
-                df_mov_mostrar = df_mov
-                titulo_doc_m = "Historial_Completo_Recepciones"
-            else:
-                df_mov_mostrar = df_mov[df_mov['Mov_Label'] == filtro_mov_tanda]
-                titulo_doc_m = f"Recepcion_{filtro_mov_tanda.replace(' | ', '_').replace(':', '')}"
-
-            df_final_hist_mov = df_mov_mostrar.drop(columns=["ID", "Mov_Label"])
-            st.dataframe(df_final_hist_mov, width='stretch', hide_index=True)
-
+            st.dataframe(df_hist_mov, use_container_width=True, hide_index=True)
             st.markdown("<br>", unsafe_allow_html=True)
-            
-            col_mexp1, col_mexp2 = st.columns(2)
-            with col_mexp1:
-                excel_bytes_hist_m = convertir_df_a_excel(df_final_hist_mov)
-                st.download_button(
-                    label="📥 Descargar Planilla Seleccionada en Excel (.xlsx)",
-                    data=excel_bytes_hist_m,
-                    file_name=f"{titulo_doc_m}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="download_excel_hist_mov"
-                )
-            with col_mexp2:
-                html_impresion_m = convertir_df_a_html_impresion(df_final_hist_mov, f"Recepción de Mercadería - {filtro_mov_tanda}")
-                st.download_button(
-                    label="🖨️ Descargar / Imprimir Reporte en PDF (HTML)",
-                    data=html_impresion_m,
-                    file_name=f"{titulo_doc_m}.html",
-                    mime="text/html",
-                    key="download_pdf_hist_mov"
-                )
-
-            st.markdown("<br>", unsafe_allow_html=True)
-            with st.expander("📎 Ver o descargar remitos adjuntos"):
-                df_con_remito = df_mov[df_mov['Remito'].notna() & (df_mov['Remito'] != "")]
-                if df_con_remito.empty:
-                    st.info("No hay remitos adjuntos en los registros actuales.")
-                else:
-                    opciones_remitos = [f"Fecha: {r['Fecha']} | Hora: {r['Hora']} | Resp: {r['Responsable']} | Archivo: {Path(r['Remito']).name}" for _, r in df_con_remito.iterrows()]
-                    remito_elegido = st.selectbox("Seleccione el remito a ver:", opciones_remitos)
-                    if remito_elegido:
-                        idx_sel = opciones_remitos.index(remito_elegido)
-                        ruta_archivo_remito = df_con_remito.iloc[idx_sel]['Remito']
-                        if Path(ruta_archivo_remito).exists():
-                            with open(ruta_archivo_remito, "rb") as file_in:
-                                st.download_button(
-                                    label="📥 Descargar Archivo de Remito",
-                                    data=file_in,
-                                    file_name=Path(ruta_archivo_remito).name,
-                                    mime="application/octet-stream"
-                                )
-                        else:
-                            st.error("El archivo físico del remito ya no se encuentra en el servidor.")
+            st.download_button(
+                label="📥 Descargar Historial de Movimientos (.xlsx)",
+                data=convertir_df_a_excel(df_hist_mov),
+                file_name="historial_movimientos_stock.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
