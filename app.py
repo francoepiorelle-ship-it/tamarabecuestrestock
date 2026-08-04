@@ -436,7 +436,7 @@ with tab_control:
                 st.rerun()
 
 # ==========================================
-# 3. SOLAPA: RECEPCIÓN DE MERCADERÍA (CARGA MASIVA TODO EN UNO)
+# 3. SOLAPA: RECEPCIÓN DE MERCADERÍA
 # ==========================================
 with tab_movimientos:
     st.markdown("### Recepción de Mercadería (Carga Masiva)")
@@ -458,13 +458,11 @@ with tab_movimientos:
     st.markdown("#### 📝 Detalle de Artículos Recibidos")
     st.caption("Agregá filas abajo de todo, buscá tu producto o completá la cantidad, talle y color de cada ítem que vino en el remito.")
 
-    # Preparamos una plantilla vacía o recuperamos si ya estaba en session_state
     if 'df_recepcion_masiva' not in st.session_state:
         st.session_state.df_recepcion_masiva = pd.DataFrame(columns=[
             "Seleccionar", "SKU", "Producto", "Tipo", "Cantidad", "Talle", "Color", "Observación"
         ])
 
-    # Si la tabla está vacía, le damos filas iniciales vacías para que sea fácil editar
     if st.session_state.df_recepcion_masiva.empty and not df_productos.empty:
         filas_iniciales = []
         for _, prod in df_productos.head(5).iterrows():
@@ -480,12 +478,10 @@ with tab_movimientos:
             })
         st.session_state.df_recepcion_masiva = pd.DataFrame(filas_iniciales)
 
-    # Creamos un editor interactivo donde la usuaria puede agregar filas o tildar productos
     opciones_skus_dict = {}
     if not df_productos.empty:
         opciones_skus_dict = {f"{row['Descripción']} (SKU: {row['SKU']})": row['SKU'] for _, row in df_productos.iterrows()}
 
-    # Editor de tabla optimizado
     df_editado = st.data_editor(
         st.session_state.df_recepcion_masiva,
         num_rows="dynamic",
@@ -514,13 +510,11 @@ with tab_movimientos:
         if not responsable_recepcion:
             st.error("Por favor, ingresá el nombre del responsable antes de guardar.")
         else:
-            # Filtramos solo los elementos que estén tildados (Seleccionar == True)
             df_a_guardar = df_editado[df_editado["Seleccionar"] == True].copy()
             
             if df_a_guardar.empty:
                 st.warning("⚠️ No hay ningún producto seleccionado para guardar en esta recepción.")
             else:
-                # Guardamos el archivo del remito si existe
                 ruta_guardada = ""
                 if archivo_remito_subido is not None:
                     timestamp_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -560,11 +554,9 @@ with tab_movimientos:
                 conexion.commit()
                 conexion.close()
 
-                # Guardamos para generar el archivo de etiquetas inmediatamente abajo
                 st.session_state.ultimo_movimiento_guardado = lista_para_etiquetas
                 st.success(f"¡Recepción completa guardada exitosamente a las {hora_arg}! Se registraron {len(df_a_guardar)} ítems juntos.")
 
-    # --- GENERAR ARCHIVO CSV PARA ETIQUETAS (BASADO EN LA ÚLTIMA RECEPCIÓN GUARDADA) ---
     if st.session_state.ultimo_movimiento_guardado:
         st.markdown("<br><hr><br>", unsafe_allow_html=True)
         st.markdown("### 🏷️ Generar Archivo CSV para Etiquetas de esta Recepción")
@@ -652,159 +644,86 @@ with tab_historial:
                 elif opcion_eliminacion == "Una tanda entera (por hora)":
                     sesiones_disponibles = df_historial.apply(lambda r: f"Fecha: {r['Fecha']} - Hora: {r['Hora']} - Resp: {r['Responsable']}", axis=1).unique().tolist()
                     sesiones_disponibles.insert(0, "Seleccione una tanda...")
-                    
-                    col_s1, col_s2 = st.columns([3, 1])
-                    with col_s1:
-                        sesion_a_borrar = st.selectbox("Tanda:", sesiones_disponibles, label_visibility="collapsed")
-                    with col_s2:
-                        if st.button("🗑️ Borrar tanda entera"):
-                            if sesion_a_borrar != "Seleccione una tanda...":
-                                partes_s = sesion_a_borrar.split(" - ")
-                                f_val = partes_s[0].replace("Fecha: ", "")
-                                h_val = partes_s[1].replace("Hora: ", "")
-                                conexion = sqlite3.connect(DB_PATH)
-                                cursor = conexion.cursor()
-                                cursor.execute("DELETE FROM controles_fisicos WHERE fecha = ? AND hora = ?", (f_val, h_val))
-                                conexion.commit()
-                                conexion.close()
-                                st.success("¡Tanda eliminada correctamente!")
-                                st.rerun()
+                    tanda_a_borrar = st.selectbox("Tanda:", sesiones_disponibles)
+                    if st.button("🗑️ Eliminar Tanda Entera"):
+                        if tanda_a_borrar != "Seleccione una tanda...":
+                            partes = tanda_a_borrar.split(" - ")
+                            f_val = partes[0].replace("Fecha: ", "")
+                            h_val = partes[1].replace("Hora: ", "")
+                            conexion = sqlite3.connect(DB_PATH)
+                            cursor = conexion.cursor()
+                            cursor.execute("DELETE FROM controles_fisicos WHERE fecha = ? AND hora = ?", (f_val, h_val))
+                            conexion.commit()
+                            conexion.close()
+                            st.success("¡Tanda eliminada exitosamente!")
+                            st.rerun()
                 else:
-                    fechas_para_borrar = list(df_historial['Fecha'].unique())
-                    fechas_para_borrar.insert(0, "Seleccione una fecha...")
-                    
-                    col_dia1, col_dia2 = st.columns([3, 1])
-                    with col_dia1:
-                        fecha_a_borrar = st.selectbox("Fecha a eliminar:", fechas_para_borrar, label_visibility="collapsed", key="f_del_dia_fis")
-                    with col_dia2:
-                        if st.button("🗑️ Borrar día completo"):
-                            if fecha_a_borrar != "Seleccione una fecha...":
-                                conexion = sqlite3.connect(DB_PATH)
-                                cursor = conexion.cursor()
-                                cursor.execute("DELETE FROM controles_fisicos WHERE fecha = ?", (fecha_a_borrar,))
-                                conexion.commit()
-                                conexion.close()
-                                st.success("¡Día completo eliminado!")
-                                st.rerun()
+                    dias_disponibles = df_historial['Fecha'].unique().tolist()
+                    dias_disponibles.insert(0, "Seleccione un día...")
+                    dia_a_borrar = st.selectbox("Día:", dias_disponibles)
+                    if st.button("🗑️ Eliminar Día Entero"):
+                        if dia_a_borrar != "Seleccione un día...":
+                            conexion = sqlite3.connect(DB_PATH)
+                            cursor = conexion.cursor()
+                            cursor.execute("DELETE FROM controles_fisicos WHERE fecha = ?", (dia_a_borrar,))
+                            conexion.commit()
+                            conexion.close()
+                            st.success("¡Día completo eliminado exitosamente!")
+                            st.rerun()
 
     else:
-        st.markdown("#### 📦 Historial de Recepciones y Movimientos (por Tandas / Horas)")
-        df_movs = cargar_historial_movimientos()
+        st.markdown("#### 📦 Historial de Recepciones y Movimientos de Mercadería")
+        df_movimientos = cargar_historial_movimientos()
         
-        if df_movs.empty:
-            st.info("No hay recepciones registradas todavía.")
+        if df_movimientos.empty:
+            st.info("No hay recepciones ni movimientos registrados todavía.")
         else:
-            df_movs['Tanda_Label'] = df_movs.apply(lambda r: f"Fecha: {r['Fecha']} | Hora: {r['Hora']} | Prov: {r['Proveedor']} | Resp: {r['Responsable']}", axis=1)
-            tandas_movs_disponibles = ["Todas las tandas"] + list(df_movs['Tanda_Label'].unique())
+            df_movimientos['Mov_Label'] = df_movimientos.apply(lambda r: f"Fecha: {r['Fecha']} | Hora: {r['Hora']} | Resp: {r['Responsable']} | Prov: {r['Proveedor']}", axis=1)
+            movs_disponibles = ["Todos los movimientos"] + list(df_movimientos['Mov_Label'].unique())
             
-            col_hf1, col_hf2 = st.columns(2)
-            with col_hf1:
-                filtro_tanda_mov = st.selectbox("🔍 Filtrar por Tanda específica (Fecha y Hora):", tandas_movs_disponibles)
-            with col_hf2:
-                prov_hist_opts = ["Todos"] + sorted(df_movs['Proveedor'].dropna().unique().tolist()) if 'Proveedor' in df_movs.columns else ["Todos"]
-                filtro_prov_hist = st.selectbox("Filtrar historial por Proveedor:", prov_hist_opts)
+            filtro_mov = st.selectbox("🔍 Filtrar por Recepción específica:", movs_disponibles)
+            df_mov_mostrar = df_movimientos if filtro_mov == "Todos los movimientos" else df_movimientos[df_movimientos['Mov_Label'] == filtro_mov]
 
-            df_movs_mostrar = df_movs.copy()
-            if filtro_tanda_mov != "Todas las tandas":
-                df_movs_mostrar = df_movs_mostrar[df_movs_mostrar['Tanda_Label'] == filtro_tanda_mov]
-            if filtro_prov_hist != "Todos":
-                df_movs_mostrar = df_movs_mostrar[df_movs_mostrar['Proveedor'] == filtro_prov_hist]
+            st.dataframe(df_mov_mostrar.drop(columns=["ID", "Mov_Label"]), width='stretch', hide_index=True)
 
-            def pintar_tipo(val):
-                color = 'green' if 'Ingreso' in str(val) else 'red'
-                return f'color: {color}; font-weight: bold;'
-                
-            df_tabla_visible = df_movs_mostrar.drop(columns=["ID", "Tanda_Label", "Remito"]).copy()
-            df_tabla_visible["Remito Adjunto"] = df_movs_mostrar["Remito"].apply(lambda x: "Ver / Descargar 📄" if x and Path(str(x)).exists() else "Sin archivo")
-            
-            st.dataframe(df_tabla_visible.style.map(pintar_tipo, subset=['Tipo']), width='stretch', hide_index=True)
-            
-            st.markdown("<br>", unsafe_allow_html=True)
-            with st.expander("🔍 Ver o Descargar el Remito de un Registro"):
-                registros_con_remito = df_movs_mostrar[df_movs_mostrar["Remito"].apply(lambda x: bool(x and Path(str(x)).exists()))]
-                if registros_con_remito.empty:
-                    st.info("No hay remitos adjuntos en los registros filtrados actualmente.")
-                else:
-                    opciones_remitos = [f"ID {row['ID']} - [{row['Fecha']} {row['Hora']}] {row['Producto']} (Prov: {row['Proveedor']})" for _, row in registros_con_remito.iterrows()]
-                    seleccion_remito_ver = st.selectbox("Seleccioná el registro para ver su remito:", opciones_remitos)
-                    
-                    if seleccion_remito_ver:
-                        id_seleccionado = int(seleccion_remito_ver.split("ID ")[1].split(" -")[0])
-                        fila_encontrada = registros_con_remito[registros_con_remito["ID"] == id_seleccionado].iloc[0]
-                        ruta_archivo_remito = Path(fila_encontrada["Remito"])
-                        
-                        if ruta_archivo_remito.exists():
-                            st.write(f"**Observación guardada:** {fila_encontrada['Observación']}")
-                            extension = ruta_archivo_remito.suffix.lower()
-                            if extension in [".jpg", ".jpeg", ".png"]:
-                                st.image(str(ruta_archivo_remito), caption=f"Remito - ID {id_seleccionado}", use_container_width=True)
-                            elif extension == ".pdf":
-                                with open(ruta_archivo_remito, "rb") as f_pdf:
+            # Sección para ver remitos adjuntos
+            remitos_con_archivo = df_mov_mostrar[df_mov_mostrar['Remito'].notna() & (df_mov_mostrar['Remito'] != "")]
+            if not remitos_con_archivo.empty:
+                st.markdown("<br>", unsafe_allow_html=True)
+                st.markdown("#### 📎 Remitos Adjuntos en esta vista")
+                for _, row in remitos_con_archivo.iterrows():
+                    ruta_rem = Path(row['Remito'])
+                    if ruta_rem.exists():
+                        with st.expander(f"📄 Remito de {row['Fecha']} {row['Hora']} - Prov: {row['Proveedor']} ({row['Responsable']})"):
+                            if ruta_rem.suffix.lower() in ['.png', '.jpg', '.jpeg']:
+                                st.image(str(ruta_rem), caption=f"Remito {row['Fecha']}", use_column_width=True)
+                            elif ruta_rem.suffix.lower() == '.pdf':
+                                st.markdown(f"📄 Archivo PDF adjunto: `{ruta_rem.name}`")
+                                with open(ruta_rem, "rb") as pdf_file:
                                     st.download_button(
                                         label="📥 Descargar PDF del Remito",
-                                        data=f_pdf,
-                                        file_name=ruta_archivo_remito.name,
-                                        mime="application/pdf"
+                                        data=pdf_file,
+                                        file_name=ruta_rem.name,
+                                        mime="application/pdf",
+                                        key=f"dl_pdf_{row['ID']}"
                                     )
-                        else:
-                            st.warning("El archivo del remito ya no se encuentra en la carpeta del sistema.")
 
             st.markdown("<br>", unsafe_allow_html=True)
-            with st.expander("🗑️ Zona de administración: Eliminar tandas o registros específicos"):
-                opcion_eliminacion_rec = st.radio("¿Qué deseas eliminar?", ["Un ítem específico de una tanda", "Una tanda entera (por hora)", "Un día entero completo"], key="del_rec")
+            with st.expander("🗑️ Zona de administración: Eliminar movimientos o recepciones"):
+                opciones_borrar_mov = [f"{row['ID']} - [{row['Fecha']} {row['Hora']}] {row['Producto']} ({row['Tipo']})" for _, row in df_mov_mostrar.iterrows()]
+                opciones_borrar_mov.insert(0, "Seleccione un movimiento...")
                 
-                if opcion_eliminacion_rec == "Un ítem específico de una tanda":
-                    opciones_borrar_mov = [f"{row['ID']} - [{row['Fecha']} {row['Hora']}] {row['Producto']}" for _, row in df_movs_mostrar.iterrows()]
-                    opciones_borrar_mov.insert(0, "Seleccione un registro...")
-                    
-                    col_del1, col_del2 = st.columns([3, 1])
-                    with col_del1:
-                        registro_mov_a_borrar = st.selectbox("Registro:", opciones_borrar_mov, label_visibility="collapsed")
-                    with col_del2:
-                        if st.button("❌ Eliminar ítem"):
-                            if registro_mov_a_borrar != "Seleccione un registro...":
-                                id_borrar = int(registro_mov_a_borrar.split(" - ")[0])
-                                conexion = sqlite3.connect(DB_PATH)
-                                cursor = conexion.cursor()
-                                cursor.execute("DELETE FROM movimientos_stock WHERE id = ?", (id_borrar,))
-                                conexion.commit()
-                                conexion.close()
-                                st.success("¡Registro eliminado!")
-                                st.rerun()
-                elif opcion_eliminacion_rec == "Una tanda entera (por hora)":
-                    tandas_disponibles = df_movs['Tanda_Label'].unique().tolist()
-                    tandas_disponibles.insert(0, "Seleccione una tanda...")
-                    
-                    col_t1, col_t2 = st.columns([3, 1])
-                    with col_t1:
-                        tanda_a_borrar = st.selectbox("Tanda:", tandas_disponibles, label_visibility="collapsed")
-                    with col_t2:
-                        if st.button("🗑️ Borrar tanda entera"):
-                            if tanda_a_borrar != "Seleccione una tanda...":
-                                partes_t = tanda_a_borrar.split(" | ")
-                                f_val = partes_t[0].replace("Fecha: ", "")
-                                h_val = partes_t[1].replace("Hora: ", "")
-                                conexion = sqlite3.connect(DB_PATH)
-                                cursor = conexion.cursor()
-                                cursor.execute("DELETE FROM movimientos_stock WHERE fecha = ? AND hora = ?", (f_val, h_val))
-                                conexion.commit()
-                                conexion.close()
-                                st.success("¡Tanda eliminada correctamente!")
-                                st.rerun()
-                else:
-                    fechas_mov_para_borrar = list(df_movs['Fecha'].unique())
-                    fechas_mov_para_borrar.insert(0, "Seleccione una fecha...")
-                    
-                    col_dia1, col_dia2 = st.columns([3, 1])
-                    with col_dia1:
-                        fecha_mov_a_borrar = st.selectbox("Fecha a eliminar:", fechas_mov_para_borrar, label_visibility="collapsed", key="f_del_dia_rec")
-                    with col_dia2:
-                        if st.button("🗑️ Borrar día completo"):
-                            if fecha_mov_a_borrar != "Seleccione una fecha...":
-                                conexion = sqlite3.connect(DB_PATH)
-                                cursor = conexion.cursor()
-                                cursor.execute("DELETE FROM movimientos_stock WHERE fecha = ?", (fecha_mov_a_borrar,))
-                                conexion.commit()
-                                conexion.close()
-                                st.success("¡Día completo eliminado!")
-                                st.rerun()
+                col_mdel1, col_mdel2 = st.columns([3, 1])
+                with col_mdel1:
+                    mov_a_borrar = st.selectbox("Movimiento:", opciones_borrar_mov, label_visibility="collapsed")
+                with col_mdel2:
+                    if st.button("❌ Eliminar movimiento"):
+                        if mov_a_borrar != "Seleccione un movimiento...":
+                            id_mov_borrar = int(mov_a_borrar.split(" - ")[0])
+                            conexion = sqlite3.connect(DB_PATH)
+                            cursor = conexion.cursor()
+                            cursor.execute("DELETE FROM movimientos_stock WHERE id = ?", (id_mov_borrar,))
+                            conexion.commit()
+                            conexion.close()
+                            st.success("¡Movimiento eliminado!")
+                            st.rerun()
