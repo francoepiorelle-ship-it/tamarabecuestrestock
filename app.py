@@ -573,7 +573,7 @@ with tab_movimientos:
     if st.session_state.ultimo_movimiento_guardado:
         st.markdown("<br><hr><br>", unsafe_allow_html=True)
         st.markdown("### 🏷️ Generar Archivo CSV para Etiquetas de esta Recepción")
-        st.caption("Podes descargar el archivo con formato exacto (delimitado con comillas) listo para tu impresora de etiquetas.")
+        st.caption("Podes descargar el archivo con formato exacto (delimitado con punto y coma) listo para tu impresora de etiquetas.")
         
         tipo_cant_etiquetas = st.radio("Cantidad de etiquetas por producto:", ["Imprimir 1 etiqueta por ítem", "Imprimir tantas etiquetas como la cantidad recibida"], horizontal=True, key="radio_etiquetas_masivo")
         
@@ -588,7 +588,8 @@ with tab_movimientos:
         
         if filas_etiquetas:
             df_etiquetas = pd.DataFrame(filas_etiquetas)
-            csv_buffer = df_etiquetas.to_csv(index=False, header=False, encoding="utf-8-sig", quoting=1)
+            # Usamos punto y coma (sep=";") para que Excel lo abra directamente separado en columnas
+            csv_buffer = df_etiquetas.to_csv(index=False, header=False, encoding="utf-8-sig", sep=";")
             
             timestamp_etiq = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             nombre_csv_etiquetas = f"etiquetas_{timestamp_etiq}.csv"
