@@ -46,8 +46,6 @@ def asegurar_base_datos():
             responsable TEXT,
             sku TEXT,
             producto TEXT,
-            talle TEXT,
-            color TEXT,
             stock_fisico REAL,
             stock_sistema REAL,
             diferencia REAL,
@@ -65,10 +63,12 @@ def asegurar_base_datos():
             rubro TEXT,
             subrubro TEXT,
             proveedor TEXT,
-            talle TEXT,
-            color TEXT,
             cantidad REAL,
-            responsable TEXT,
+            resp_conteo TEXT,
+            resp_calidad TEXT,
+            resp_remito TEXT,
+            resp_etiquetado TEXT,
+            resp_ubicacion TEXT,
             observacion TEXT,
             remito_archivo TEXT,
             fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -92,6 +92,16 @@ def asegurar_base_datos():
         cursor.execute("ALTER TABLE movimientos_stock ADD COLUMN rubro TEXT")
     if "subrubro" not in cols_mov:
         cursor.execute("ALTER TABLE movimientos_stock ADD COLUMN subrubro TEXT")
+    if "resp_conteo" not in cols_mov:
+        cursor.execute("ALTER TABLE movimientos_stock ADD COLUMN resp_conteo TEXT")
+    if "resp_calidad" not in cols_mov:
+        cursor.execute("ALTER TABLE movimientos_stock ADD COLUMN resp_calidad TEXT")
+    if "resp_remito" not in cols_mov:
+        cursor.execute("ALTER TABLE movimientos_stock ADD COLUMN resp_remito TEXT")
+    if "resp_etiquetado" not in cols_mov:
+        cursor.execute("ALTER TABLE movimientos_stock ADD COLUMN resp_etiquetado TEXT")
+    if "resp_ubicacion" not in cols_mov:
+        cursor.execute("ALTER TABLE movimientos_stock ADD COLUMN resp_ubicacion TEXT")
         
     conexion.commit()
     conexion.close()
@@ -101,11 +111,8 @@ def sincronizar_excel_automatico():
     if ruta_excel.exists():
         try:
             df = pd.read_excel(ruta_excel)
-            
-            # Normalizar nombres de columnas (quitar espacios a los costados)
             df.columns = df.columns.str.strip()
             
-            # Mapeo flexible por si viene como 'Sub Rubro' con espacio
             if "Sub Rubro" in df.columns and "Subrubro" not in df.columns:
                 df.rename(columns={"Sub Rubro": "Subrubro"}, inplace=True)
 
@@ -163,18 +170,25 @@ def cargar_datos():
 def cargar_historial():
     conexion = sqlite3.connect(DB_PATH)
     try:
-        df = pd.read_sql("SELECT id AS ID, fecha AS Fecha, hora AS Hora, responsable AS Responsable, sku AS SKU, producto AS Producto, talle AS Talle, color AS Color, stock_fisico AS 'Stock Físico', stock_sistema AS 'Stock Sistema', diferencia AS Diferencia FROM controles_fisicos ORDER BY fecha DESC, hora DESC, id DESC", conexion)
+        df = pd.read_sql("SELECT id AS ID, fecha AS Fecha, hora AS Hora, responsable AS Responsable, sku AS SKU, producto AS Producto, stock_fisico AS 'Stock Físico', stock_sistema AS 'Stock Sistema', diferencia AS Diferencia FROM controles_fisicos ORDER BY fecha DESC, hora DESC, id DESC", conexion)
     except Exception:
-        df = pd.DataFrame(columns=["ID", "Fecha", "Hora", "Responsable", "SKU", "Producto", "Talle", "Color", "Stock Físico", "Stock Sistema", "Diferencia"])
+        df = pd.DataFrame(columns=["ID", "Fecha", "Hora", "Responsable", "SKU", "Producto", "Stock Físico", "Stock Sistema", "Diferencia"])
     conexion.close()
     return df
 
 def cargar_historial_movimientos():
     conexion = sqlite3.connect(DB_PATH)
     try:
-        df = pd.read_sql("SELECT id AS ID, fecha AS Fecha, hora AS Hora, tipo AS Tipo, sku AS SKU, producto AS Producto, rubro AS Rubro, subrubro AS Subrubro, proveedor AS Proveedor, talle AS Talle, color AS Color, cantidad AS Cantidad, responsable AS Responsable, observacion AS Observación, remito_archivo AS Remito FROM movimientos_stock ORDER BY fecha DESC, hora DESC, id DESC", conexion)
+        df = pd.read_sql("""
+            SELECT id AS ID, fecha AS Fecha, hora AS Hora, tipo AS Tipo, sku AS SKU, producto AS Producto, 
+                   rubro AS Rubro, subrubro AS Subrubro, proveedor AS Proveedor, cantidad AS Cantidad, 
+                   resp_conteo AS 'Conteo Inicial', resp_calidad AS 'Control de Calidad', 
+                   resp_remito AS 'Cotejo Remito', resp_etiquetado AS 'Etiquetado SKU', 
+                   resp_ubicacion AS 'Ubicación Depósito', observacion AS Observación, remito_archivo AS Remito 
+            FROM movimientos_stock ORDER BY fecha DESC, hora DESC, id DESC
+        """, conexion)
     except Exception:
-        df = pd.DataFrame(columns=["ID", "Fecha", "Hora", "Tipo", "SKU", "Producto", "Rubro", "Subrubro", "Proveedor", "Talle", "Color", "Cantidad", "Responsable", "Observación", "Remito"])
+        df = pd.DataFrame(columns=["ID", "Fecha", "Hora", "Tipo", "SKU", "Producto", "Rubro", "Subrubro", "Proveedor", "Cantidad", "Conteo Inicial", "Control de Calidad", "Cotejo Remito", "Etiquetado SKU", "Ubicación Depósito", "Observación", "Remito"])
     conexion.close()
     return df
 
@@ -404,7 +418,7 @@ with tab_dash:
 # ==========================================
 with tab_control:
     st.markdown("### Control de Stock")
-    st.caption("Podes realizar varios conteos en el mismo día (ej. turno mañana y turno tarde) guardándolos de forma independiente.")
+    st.caption("Podés realizar varios conteos en el mismo día (ej. turno mañana y turno tarde) guardándolos de forma independiente.")
     st.markdown("<br>", unsafe_allow_html=True)
     
     col_fecha, col_resp = st.columns(2)
@@ -423,14 +437,10 @@ with tab_control:
     with st.container():
         st.markdown("#### ➕ Agregar Producto a la Tanda Actual de Conteo")
         with st.form("form_conteo_dia", clear_on_submit=True):
-            col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
+            col1, col2 = st.columns([3, 1])
             with col1:
                 producto_seleccionado = st.selectbox("Buscar Producto", opciones_buscador)
             with col2:
-                talle_input = st.text_input("Talle")
-            with col3:
-                color_input = st.text_input("Color")
-            with col4:
                 stock_fisico_input = st.number_input("Stock Físico", min_value=0, step=1)
                 
             st.markdown("<br>", unsafe_allow_html=True)
@@ -448,8 +458,6 @@ with tab_control:
                 st.session_state.lista_control.append({
                     "SKU": sku_extraido,
                     "Producto": nombre_prod,
-                    "Talle": talle_input,
-                    "Color": color_input,
                     "Stock Físico": stock_fisico_input,
                     "Stock Sistema": stock_sis,
                     "Diferencia": diferencia
@@ -503,9 +511,9 @@ with tab_control:
                 cursor = conexion.cursor()
                 for item in st.session_state.lista_control:
                     cursor.execute("""
-                        INSERT INTO controles_fisicos (fecha, hora, responsable, sku, producto, talle, color, stock_fisico, stock_sistema, diferencia)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (str(fecha_control), hora_arg, responsable, item['SKU'], item['Producto'], item['Talle'], item['Color'], item['Stock Físico'], item['Stock Sistema'], item['Diferencia']))
+                        INSERT INTO controles_fisicos (fecha, hora, responsable, sku, producto, stock_fisico, stock_sistema, diferencia)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (str(fecha_control), hora_arg, responsable, item['SKU'], item['Producto'], item['Stock Físico'], item['Stock Sistema'], item['Diferencia']))
                 conexion.commit()
                 conexion.close()
                 
@@ -518,17 +526,28 @@ with tab_control:
 # ==========================================
 with tab_movimientos:
     st.markdown("### Recepción de Mercadería")
-    st.caption("La planilla comienza vacía. Utiliza el formulario externo de abajo para ir agregando los productos de la recepción uno a uno, incluyendo su Rubro y Subrubro automáticamente.")
+    st.caption("La planilla comienza vacía. Utilizá el formulario de abajo para ir agregando los productos de la recepción uno a uno, indicando los responsables de cada proceso y adjuntando el remito general.")
     st.markdown("<br>", unsafe_allow_html=True)
     
-    col_mfech, col_mresp, col_mprov = st.columns(3)
+    col_mfech, col_mprov = st.columns(2)
     with col_mfech:
         fecha_recepcion_dia = st.date_input("📅 Fecha de Recepción", datetime.date.today(), key="f_rec_dia")
-    with col_mresp:
-        responsable_recepcion = st.text_input("👤 Responsable", placeholder="Ej: Tamara", key="resp_rec_dia")
     with col_mprov:
         lista_prov_form = sorted(df_productos['Proveedor'].dropna().unique().tolist()) if 'Proveedor' in df_productos.columns else []
         proveedor_recepcion_global = st.selectbox("📦 Proveedor de la Recepción", ["General"] + lista_prov_form, key="prov_rec_global")
+
+    st.markdown("#### 👥 Responsables del Proceso")
+    r_col1, r_col2, r_col3, r_col4, r_col5 = st.columns(5)
+    with r_col1:
+        resp_conteo = st.text_input("1) Conteo inicial", placeholder="Nombre")
+    with r_col2:
+        resp_calidad = st.text_input("2) Control de calidad", placeholder="Nombre")
+    with r_col3:
+        resp_remito = st.text_input("3) Cotejo con remito", placeholder="Nombre")
+    with r_col4:
+        resp_etiquetado = st.text_input("4) Etiquetado SKU", placeholder="Nombre")
+    with r_col5:
+        resp_ubicacion = st.text_input("5) Ubicación depósito", placeholder="Nombre")
 
     archivo_remito_subido = st.file_uploader("📎 Adjuntar Remito General para Toda la Planilla (Foto o PDF)", type=["png", "jpg", "jpeg", "pdf"], key="remito_masivo_subida")
 
@@ -544,19 +563,13 @@ with tab_movimientos:
             else:
                 lista_opciones_prod = ["No hay productos disponibles"]
 
-            f_col_p1, f_col_p2 = st.columns([3, 1])
+            f_col_p1, f_col_p2, f_col_p3 = st.columns([3, 1, 1])
             with f_col_p1:
                 prod_elegido_form = st.selectbox("Seleccionar Producto", lista_opciones_prod)
             with f_col_p2:
                 tipo_mov_form = st.selectbox("Tipo de Movimiento", ["Ingreso (+)", "Egreso (-)"])
-
-            f_col_p3, f_col_p4, f_col_p5 = st.columns(3)
             with f_col_p3:
                 cant_form = st.number_input("Cantidad", min_value=1, value=1, step=1)
-            with f_col_p4:
-                talle_form = st.text_input("Talle (Opcional)")
-            with f_col_p5:
-                color_form = st.text_input("Color (Opcional)")
 
             obs_form = st.text_input("Observación (Opcional)")
 
@@ -565,7 +578,7 @@ with tab_movimientos:
 
             if btn_agregar_a_tabla:
                 if prod_elegido_form == "Seleccione un producto..." or prod_elegido_form == "No hay productos disponibles":
-                    st.error("Por favor, seleccione un producto válido.")
+                    st.error("Por favor, seleccioná un producto válido.")
                 else:
                     datos_prod = opciones_skus_dict[prod_elegido_form]
                     sku_val = str(datos_prod['SKU'])
@@ -580,8 +593,6 @@ with tab_movimientos:
                         "Subrubro": subrubro_val,
                         "Tipo": tipo_mov_form,
                         "Cantidad": float(cant_form),
-                        "Talle": talle_form,
-                        "Color": color_form,
                         "Observación": obs_form
                     }
                     
@@ -589,7 +600,7 @@ with tab_movimientos:
                         st.session_state.tabla_recepcion_items = []
                     
                     st.session_state.tabla_recepcion_items.append(nuevo_item)
-                    st.success(f"¡Producto agregado a la planilla correctamente!")
+                    st.success("¡Producto agregado a la planilla correctamente!")
 
     st.markdown("<br><hr><br>", unsafe_allow_html=True)
     st.markdown("#### 📋 Planilla de Recepción Actual")
@@ -598,8 +609,8 @@ with tab_movimientos:
         st.session_state.tabla_recepcion_items = []
 
     if not st.session_state.tabla_recepcion_items:
-        st.info("ℹ️ La planilla está vacía. Utiliza el formulario de arriba para agregar los productos que ingresan.")
-        df_mostrar_recepcion = pd.DataFrame(columns=["SKU", "Producto", "Rubro", "Subrubro", "Tipo", "Cantidad", "Talle", "Color", "Observación"])
+        st.info("ℹ️ La planilla está vacía. Utilizá el formulario de arriba para agregar los productos que ingresan.")
+        df_mostrar_recepcion = pd.DataFrame(columns=["SKU", "Producto", "Rubro", "Subrubro", "Tipo", "Cantidad", "Observación"])
         st.dataframe(df_mostrar_recepcion, width='stretch', hide_index=True)
     else:
         df_mostrar_recepcion = pd.DataFrame(st.session_state.tabla_recepcion_items)
@@ -619,44 +630,41 @@ with tab_movimientos:
         col_acc1, col_acc2 = st.columns([2, 1])
         with col_acc1:
             if st.button("💾 Guardar Recepción Completa en el Historial"):
-                if not responsable_recepcion:
-                    st.error("Por favor, ingresá el nombre del responsable antes de guardar.")
-                else:
-                    ruta_guardada = ""
-                    if archivo_remito_subido is not None:
-                        timestamp_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                        nombre_archivo_seguro = f"remito_{timestamp_str}_{archivo_remito_subido.name}"
-                        ruta_completa = REMITOS_DIR / nombre_archivo_seguro
-                        with open(ruta_completa, "wb") as f:
-                            f.write(archivo_remito_subido.getbuffer())
-                        ruta_guardada = str(ruta_completa)
+                ruta_guardada = ""
+                if archivo_remito_subido is not None:
+                    timestamp_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                    nombre_archivo_seguro = f"remito_{timestamp_str}_{archivo_remito_subido.name}"
+                    ruta_completa = REMITOS_DIR / nombre_archivo_seguro
+                    with open(ruta_completa, "wb") as f:
+                        f.write(archivo_remito_subido.getbuffer())
+                    ruta_guardada = str(ruta_completa)
 
-                    hora_arg = datetime.datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).strftime("%H:%M:%S")
-                    conexion = sqlite3.connect(DB_PATH)
-                    cursor = conexion.cursor()
-                    
-                    lista_para_etiquetas = []
+                hora_arg = datetime.datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).strftime("%H:%M:%S")
+                conexion = sqlite3.connect(DB_PATH)
+                cursor = conexion.cursor()
+                
+                lista_para_etiquetas = []
 
-                    for item in st.session_state.tabla_recepcion_items:
-                        cursor.execute("""
-                            INSERT INTO movimientos_stock (fecha, hora, tipo, sku, producto, rubro, subrubro, proveedor, talle, color, cantidad, responsable, observacion, remito_archivo)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                        """, (str(fecha_recepcion_dia), hora_arg, item['Tipo'], item['SKU'], item['Producto'], item['Rubro'], item['Subrubro'], proveedor_recepcion_global, item['Talle'], item['Color'], item['Cantidad'], responsable_recepcion, item['Observación'], ruta_guardada))
+                for item in st.session_state.tabla_recepcion_items:
+                    cursor.execute("""
+                        INSERT INTO movimientos_stock (fecha, hora, tipo, sku, producto, rubro, subrubro, proveedor, cantidad, resp_conteo, resp_calidad, resp_remito, resp_etiquetado, resp_ubicacion, observacion, remito_archivo)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (str(fecha_recepcion_dia), hora_arg, item['Tipo'], item['SKU'], item['Producto'], item['Rubro'], item['Subrubro'], proveedor_recepcion_global, item['Cantidad'], resp_conteo, resp_calidad, resp_remito, resp_etiquetado, resp_ubicacion, item['Observación'], ruta_guardada))
 
-                        if "Ingreso" in item['Tipo']:
-                            lista_para_etiquetas.append({
-                                "Producto": item['Producto'],
-                                "SKU": item['SKU'],
-                                "Cantidad": item['Cantidad']
-                            })
+                    if "Ingreso" in item['Tipo']:
+                        lista_para_etiquetas.append({
+                            "Producto": item['Producto'],
+                            "SKU": item['SKU'],
+                            "Cantidad": item['Cantidad']
+                        })
 
-                    conexion.commit()
-                    conexion.close()
+                conexion.commit()
+                conexion.close()
 
-                    st.session_state.ultimo_movimiento_guardado = lista_para_etiquetas
-                    st.session_state.tabla_recepcion_items = []
-                    st.success(f"¡Recepción completa guardada exitosamente a las {hora_arg}!")
-                    st.rerun()
+                st.session_state.ultimo_movimiento_guardado = lista_para_etiquetas
+                st.session_state.tabla_recepcion_items = []
+                st.success(f"¡Recepción completa guardada exitosamente a las {hora_arg}!")
+                st.rerun()
         with col_acc2:
             if st.button("🧹 Vaciar Planilla"):
                 st.session_state.tabla_recepcion_items = []
@@ -665,7 +673,7 @@ with tab_movimientos:
     if st.session_state.ultimo_movimiento_guardado:
         st.markdown("<br><hr><br>", unsafe_allow_html=True)
         st.markdown("### 🏷️ Generar Archivo CSV para Etiquetas de esta Recepción")
-        st.caption("Podes descargar el archivo con formato exacto (delimitado con punto y coma) listo para tu impresora de etiquetas.")
+        st.caption("Podés descargar el archivo con formato exacto (delimitado con punto y coma) listo para tu impresora de etiquetas.")
         
         tipo_cant_etiquetas = st.radio("Cantidad de etiquetas por producto:", ["Imprimir 1 etiqueta por ítem", "Imprimir tantas etiquetas como la cantidad recibida"], horizontal=True, key="radio_etiquetas_masivo")
         
@@ -698,10 +706,10 @@ with tab_movimientos:
 # ==========================================
 with tab_historial:
     st.markdown("### Historial y Auditorías Separadas por Tandas")
-    st.caption("Selecciona una tanda específica o todas las planillas, y descárgalas en Excel o en formato listo para imprimir (PDF/Ventana de impresión).")
+    st.caption("Seleccioná una tanda específica o todas las planillas, y descargalas en Excel o en formato listo para imprimir (PDF/Ventana de impresión).")
     st.markdown("<br>", unsafe_allow_html=True)
     
-    tipo_historial_seleccionado = st.radio("Seleccione el tipo de historial a visualizar:", ["Control de Stock", "Recepción / Movimientos de Mercadería"], horizontal=True)
+    tipo_historial_seleccionado = st.radio("Seleccioná el tipo de historial a visualizar:", ["Control de Stock", "Recepción / Movimientos de Mercadería"], horizontal=True)
     st.markdown("<br>", unsafe_allow_html=True)
 
     if tipo_historial_seleccionado == "Control de Stock":
@@ -812,7 +820,7 @@ with tab_historial:
         if df_mov.empty:
             st.info("No hay recepciones ni movimientos registrados todavía.")
         else:
-            df_mov['Mov_Label'] = df_mov.apply(lambda r: f"Fecha: {r['Fecha']} | Hora: {r['Hora']} | Resp: {r['Responsable']} | Prov: {r['Proveedor']}", axis=1)
+            df_mov['Mov_Label'] = df_mov.apply(lambda r: f"Fecha: {r['Fecha']} | Hora: {r['Hora']} | Prov: {r['Proveedor']}", axis=1)
             movs_disponibles = ["Todas las recepciones (Historial Completo)"] + list(df_mov['Mov_Label'].unique())
             
             filtro_mov_tanda = st.selectbox("🔍 Seleccionar Planilla / Recepción a visualizar o exportar:", movs_disponibles)
@@ -855,7 +863,7 @@ with tab_historial:
                 if df_con_remito.empty:
                     st.info("No hay remitos adjuntos en los registros actuales.")
                 else:
-                    opciones_remitos = [f"Fecha: {r['Fecha']} | Hora: {r['Hora']} | Resp: {r['Responsable']} | Archivo: {Path(r['Remito']).name}" for _, r in df_con_remito.iterrows()]
+                    opciones_remitos = [f"Fecha: {r['Fecha']} | Hora: {r['Hora']} | Prov: {r['Proveedor']} | Archivo: {Path(r['Remito']).name}" for _, r in df_con_remito.iterrows()]
                     remito_elegido = st.selectbox("Seleccione el remito a ver:", opciones_remitos)
                     if remito_elegido:
                         idx_sel = opciones_remitos.index(remito_elegido)
