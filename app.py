@@ -76,7 +76,6 @@ def sincronizar_excel_automatico():
             if all(col in df.columns for col in columnas_necesarias):
                 df_filtrado = df.copy()
                 
-                # Asegurar columna Proveedor si viene en el Excel o crearla vacía si no existe
                 if "Proveedor" not in df_filtrado.columns:
                     df_filtrado["Proveedor"] = "General"
                 
@@ -139,6 +138,9 @@ def cargar_historial_movimientos():
 
 if 'lista_control' not in st.session_state:
     st.session_state.lista_control = []
+
+if 'lista_recepcion' not in st.session_state:
+    st.session_state.lista_recepcion = []
 
 # --- SISTEMA DE LOGIN PERSISTENTE POR URL ---
 query_params = st.query_params
@@ -269,7 +271,7 @@ with col_head2:
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-tab_dash, tab_control, tab_historial, tab_movimientos = st.tabs(["📊 Dashboard General", "📋 Control Físico por Día", "📂 Historial de Auditorías", "📦 Recepcion de mercaderia"])
+tab_dash, tab_control, tab_movimientos, tab_historial = st.tabs(["📊 Dashboard General", "📋 Control Físico por Día", "📦 Recepción de Mercadería por Día", "📂 Historial y Auditorías"])
 
 # ==========================================
 # 1. SOLAPA: DASHBOARD GENERAL
@@ -416,162 +418,253 @@ with tab_control:
                 st.rerun()
 
 # ==========================================
-# 3. SOLAPA: HISTORIAL
-# ==========================================
-with tab_historial:
-    st.markdown("### Historial de Auditorías por Día")
-    st.caption("Registro completo de los controles físicos agrupados y ordenados por fecha.")
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    df_historial = cargar_historial()
-    
-    if df_historial.empty:
-        st.info("No hay controles registrados todavía.")
-    else:
-        fechas_disponibles = ["Todas"] + list(df_historial['Fecha'].unique())
-        filtro_fecha = st.selectbox("Filtrar historial por Fecha de Conteo:", fechas_disponibles)
-        
-        if filtro_fecha != "Todas":
-            df_hist_mostrar = df_historial[df_historial['Fecha'] == filtro_fecha]
-        else:
-            df_hist_mostrar = df_historial
-
-        def pintar_historial(val):
-            if pd.isna(val): return ''
-            color = 'green' if val == 0 else 'red'
-            return f'color: {color}; font-weight: bold;'
-            
-        st.dataframe(df_hist_mostrar.drop(columns=["ID"]).style.map(pintar_historial, subset=['Diferencia']), width='stretch', hide_index=True)
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-        with st.expander("🗑️ Zona de administración: Eliminar registros o días enteros"):
-            opcion_eliminacion = st.radio("¿Qué deseas eliminar?", ["Un ítem específico", "Un día entero de conteo"])
-            
-            if opcion_eliminacion == "Un ítem específico":
-                opciones_borrar_historial = [f"{row['ID']} - Fecha: {row['Fecha']} | Producto: {row['Producto']}" for _, row in df_hist_mostrar.iterrows()]
-                opciones_borrar_historial.insert(0, "Seleccione un registro...")
-                
-                col_del1, col_del2 = st.columns([3, 1])
-                with col_del1:
-                    registro_a_borrar = st.selectbox("Registro:", opciones_borrar_historial, label_visibility="collapsed")
-                with col_del2:
-                    if st.button("❌ Eliminar ítem"):
-                        if registro_a_borrar != "Seleccione un registro...":
-                            id_borrar = int(registro_a_borrar.split(" - ")[0])
-                            
-                            conexion = sqlite3.connect(DB_PATH)
-                            cursor = conexion.cursor()
-                            cursor.execute("DELETE FROM controles_fisicos WHERE id = ?", (id_borrar,))
-                            conexion.commit()
-                            conexion.close()
-                            
-                            st.success("¡Registro eliminado correctamente!")
-                            st.rerun()
-            else:
-                fechas_para_borrar = list(df_historial['Fecha'].unique())
-                fechas_para_borrar.insert(0, "Seleccione una fecha...")
-                
-                col_dia1, col_dia2 = st.columns([3, 1])
-                with col_dia1:
-                    fecha_a_borrar = st.selectbox("Fecha a eliminar:", fechas_para_borrar, label_visibility="collapsed")
-                with col_dia2:
-                    if st.button("🗑️ Borrar día completo"):
-                        if fecha_a_borrar != "Seleccione una fecha...":
-                            conexion = sqlite3.connect(DB_PATH)
-                            cursor = conexion.cursor()
-                            cursor.execute("DELETE FROM controles_fisicos WHERE fecha = ?", (fecha_a_borrar,))
-                            conexion.commit()
-                            conexion.close()
-                            
-                            st.success(f"¡Todos los registros del día {fecha_a_borrar} fueron eliminados exitosamente!")
-                            st.rerun()
-
-# ==========================================
-# 4. SOLAPA: RECEPCION DE MERCADERIA (CON PROVEEDORES Y FILTRO APARTE)
+# 3. SOLAPA: RECEPCION DE MERCADERIA POR DÍA
 # ==========================================
 with tab_movimientos:
-    st.markdown("### Recepción de Mercadería")
-    st.caption("Registra la entrada o recepción de nueva mercadería al stock vinculada a sus proveedores.")
+    st.markdown("### Recepción de Mercadería por Jornada")
+    st.caption("Agrupá la entrada o salida de múltiples productos en una misma fecha y guárdalos en conjunto.")
     st.markdown("<br>", unsafe_allow_html=True)
+    
+    col_mfech, col_mresp = st.columns(2)
+    with col_mfech:
+        fecha_recepcion_dia = st.date_input("📅 Fecha de Recepción / Movimiento", datetime.date.today(), key="f_rec_dia")
+    with col_mresp:
+        responsable_recepcion = st.text_input("👤 Responsable de la Recepción", placeholder="Ej: Tamara", key="resp_rec_dia")
 
-    with st.form("form_movimiento", clear_on_submit=True):
-        col_m1, col_m2 = st.columns(2)
-        with col_m1:
-            fecha_mov = st.date_input("📅 Fecha de Recepción", datetime.date.today())
-            tipo_mov = st.selectbox("Tipo de Movimiento", ["Ingreso (+)", "Egreso (-)"])
-            responsable_mov = st.text_input("👤 Responsable", placeholder="Ej: Tamara")
-        with col_m2:
-            # Filtro aparte por Proveedor dentro del formulario de registro
-            lista_prov_form = sorted(df_productos['Proveedor'].dropna().unique().tolist()) if 'Proveedor' in df_productos.columns else ["General"]
-            proveedor_seleccionado_form = st.selectbox("Filtro por Proveedor (opcional)", ["Todos"] + lista_prov_form)
-            
-            # Filtrar productos según el proveedor seleccionado en el formulario
-            if not df_productos.empty:
-                df_prod_form = df_productos.copy()
-                if proveedor_seleccionado_form != "Todos":
-                    df_prod_form = df_prod_form[df_prod_form['Proveedor'] == proveedor_seleccionado_form]
-                
-                opciones_mov = df_prod_form.apply(lambda x: f"{x['Descripción']} | SKU: {x['SKU']} | Prov: {x.get('Proveedor', 'N/A')}", axis=1).tolist()
-                opciones_mov.insert(0, "Seleccione un producto...")
-            else:
-                opciones_mov = ["No hay productos disponibles"]
-            
-            producto_mov = st.selectbox("Producto", opciones_mov)
-            cantidad_mov = st.number_input("Cantidad", min_value=1, step=1, value=1)
+    # Filtro aparte por Proveedor dentro del formulario
+    lista_prov_form = sorted(df_productos['Proveedor'].dropna().unique().tolist()) if 'Proveedor' in df_productos.columns else ["General"]
+    proveedor_seleccionado_form = st.selectbox("Filtrar por Proveedor (opcional):", ["Todos"] + lista_prov_form, key="prov_rec_filtro")
 
-        col_m3, col_m4 = st.columns(2)
-        with col_m3:
-            talle_mov = st.text_input("Talle (Opcional)")
-        with col_m4:
-            color_mov = st.text_input("Color (Opcional)")
-
-        observacion_mov = st.text_area("Observación / Motivo", placeholder="Ej: Ingreso de proveedor o reposición")
+    if not df_productos.empty:
+        df_prod_form = df_productos.copy()
+        if proveedor_seleccionado_form != "Todos":
+            df_prod_form = df_prod_form[df_prod_form['Proveedor'] == proveedor_seleccionado_form]
         
-        st.markdown("<br>", unsafe_allow_html=True)
-        btn_guardar_mov = st.form_submit_button("💾 Registrar Recepción")
+        opciones_mov = df_prod_form.apply(lambda x: f"{x['Descripción']} | SKU: {x['SKU']} | Prov: {x.get('Proveedor', 'N/A')}", axis=1).tolist()
+        opciones_mov.insert(0, "Seleccione un producto...")
+    else:
+        opciones_mov = ["No hay productos disponibles"]
 
-        if btn_guardar_mov:
-            if producto_mov in ["Seleccione un producto...", "No hay productos disponibles"]:
-                st.error("Por favor, selecciona un producto válido.")
-            elif not responsable_mov:
-                st.error("Por favor, ingresa el nombre del responsable.")
-            else:
+    st.markdown("<br>", unsafe_allow_html=True)
+    with st.container():
+        st.markdown("#### ➕ Agregar Producto a la Recepción del Día")
+        with st.form("form_recepcion_dia", clear_on_submit=True):
+            col_d1, col_d2, col_d3, col_d4, col_d5 = st.columns([2.5, 1, 1, 1, 1])
+            with col_d1:
+                producto_mov = st.selectbox("Producto", opciones_mov)
+            with col_d2:
+                tipo_mov = st.selectbox("Tipo", ["Ingreso (+)", "Egreso (-)"])
+            with col_d3:
+                cantidad_mov = st.number_input("Cantidad", min_value=1, step=1, value=1)
+            with col_d4:
+                talle_mov = st.text_input("Talle")
+            with col_d5:
+                color_mov = st.text_input("Color")
+            
+            observacion_mov = st.text_input("Observación / Motivo", placeholder="Ej: Reposición de stock o compra")
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            agregar_rec_btn = st.form_submit_button("Agregar a la sesión de recepción de hoy")
+            
+            if agregar_rec_btn and producto_mov not in ["Seleccione un producto...", "No hay productos disponibles"]:
                 partes = producto_mov.split(" | SKU: ")
                 nombre_p = partes[0]
                 sku_p = partes[1].split(" | Prov: ")[0] if len(partes) > 1 else "Sin SKU"
                 
-                # Obtener el proveedor real del producto seleccionado
                 prod_match = df_productos[df_productos['SKU'].astype(str) == str(sku_p).strip()]
                 prov_p = prod_match.iloc[0]['Proveedor'] if not prod_match.empty and 'Proveedor' in prod_match.columns else "General"
 
-                conexion = sqlite3.connect(DB_PATH)
-                cursor = conexion.cursor()
-                cursor.execute("""
-                    INSERT INTO movimientos_stock (fecha, tipo, sku, producto, proveedor, talle, color, cantidad, responsable, observacion)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (str(fecha_mov), tipo_mov, sku_p, nombre_p, prov_p, talle_mov, color_mov, float(cantidad_mov), responsable_mov, observacion_mov))
-                conexion.commit()
-                conexion.close()
+                st.session_state.lista_recepcion.append({
+                    "Tipo": tipo_mov,
+                    "SKU": sku_p,
+                    "Producto": nombre_p,
+                    "Proveedor": prov_p,
+                    "Talle": talle_mov,
+                    "Color": color_mov,
+                    "Cantidad": float(cantidad_mov),
+                    "Observación": observacion_mov
+                })
+                st.success(f"¡Agregado a la recepción del día! ({nombre_p})")
 
-                st.success(f"¡Recepción registrada correctamente para {nombre_p} (Proveedor: {prov_p})!")
-
-    st.markdown("<br><hr><br>", unsafe_allow_html=True)
-    st.markdown("### Historial de Recepciones")
-    
-    df_movs = cargar_historial_movimientos()
-    if df_movs.empty:
-        st.info("No hay recepciones registradas todavía.")
-    else:
-        # Filtro aparte para visualizar el historial de recepciones por Proveedor
-        prov_hist_opts = ["Todos"] + sorted(df_movs['Proveedor'].dropna().unique().tolist()) if 'Proveedor' in df_movs.columns else ["Todos"]
-        filtro_prov_hist = st.selectbox("Filtrar historial de recepciones por Proveedor:", prov_hist_opts, key="filtro_prov_hist_key")
+    if st.session_state.lista_recepcion:
+        st.markdown("<br><hr><br>", unsafe_allow_html=True)
+        st.markdown(f"### 📋 Resumen de Recepción para el día: {fecha_recepcion_dia}")
+        df_rec_actual = pd.DataFrame(st.session_state.lista_recepcion)
         
-        df_movs_mostrar = df_movs.copy()
-        if filtro_prov_hist != "Todos":
-            df_movs_mostrar = df_movs_mostrar[df_movs_mostrar['Proveedor'] == filtro_prov_hist]
-
-        def pintar_tipo(val):
+        def pintar_tipo_sesion(val):
             color = 'green' if 'Ingreso' in str(val) else 'red'
             return f'color: {color}; font-weight: bold;'
+        
+        st.dataframe(df_rec_actual.style.map(pintar_tipo_sesion, subset=['Tipo']), width='stretch')
+        
+        with st.expander("⚙️ Opciones de edición y corrección de la lista actual de recepción"):
+            col_err1, col_err2, col_err3 = st.columns([2, 1, 1])
+            with col_err1:
+                opciones_borrar_rec = [f"{i} - {item['Producto']} (Cant: {item['Cantidad']})" for i, item in enumerate(st.session_state.lista_recepcion)]
+                item_rec_a_borrar = st.selectbox("Elegí cuál borrar:", opciones_borrar_rec, label_visibility="collapsed")
+            with col_err2:
+                if st.button("❌ Borrar ítem de recepción"):
+                    if item_rec_a_borrar:
+                        indice = int(item_rec_a_borrar.split(" - ")[0])
+                        st.session_state.lista_recepcion.pop(indice)
+                        st.rerun()
+            with col_err3:
+                if st.button("🧹 Vaciar lista de recepción"):
+                    st.session_state.lista_recepcion = []
+                    st.rerun()
+                
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("💾 Guardar Recepción del Día en el Historial"):
+            if not responsable_recepcion:
+                st.error("Por favor, ingresá el nombre del responsable antes de guardar.")
+            else:
+                conexion = sqlite3.connect(DB_PATH)
+                cursor = conexion.cursor()
+                for item in st.session_state.lista_recepcion:
+                    cursor.execute("""
+                        INSERT INTO movimientos_stock (fecha, tipo, sku, producto, proveedor, talle, color, cantidad, responsable, observacion)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (str(fecha_recepcion_dia), item['Tipo'], item['SKU'], item['Producto'], item['Proveedor'], item['Talle'], item['Color'], item['Cantidad'], responsable_recepcion, item['Observación']))
+                conexion.commit()
+                conexion.close()
+                
+                st.session_state.lista_recepcion = []
+                st.success(f"¡Recepción del día {fecha_recepcion_dia} guardada exitosamente en el historial unificado!")
+                st.rerun()
+
+# ==========================================
+# 4. SOLAPA: HISTORIAL Y AUDITORÍAS (EN CONJUNTO)
+# ==========================================
+with tab_historial:
+    st.markdown("### Historial y Auditorías en Conjunto")
+    st.caption("Consulta unificada de todos los controles físicos de stock y las recepciones de mercadería registradas.")
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    tipo_historial_seleccionado = st.radio("Seleccione el tipo de historial a visualizar:", ["Control Físico de Stock", "Recepción / Movimientos de Mercadería"], horizontal=True)
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    if tipo_historial_seleccionado == "Control Físico de Stock":
+        st.markdown("#### 📋 Historial de Controles Físicos")
+        df_historial = cargar_historial()
+        
+        if df_historial.empty:
+            st.info("No hay controles físicos registrados todavía.")
+        else:
+            fechas_disponibles = ["Todas"] + list(df_historial['Fecha'].unique())
+            filtro_fecha = st.selectbox("Filtrar historial físico por Fecha:", fechas_disponibles)
             
-        st.dataframe(df_movs_mostrar.drop(columns=["ID"]).style.map(pintar_tipo, subset=['Tipo']), width='stretch', hide_index=True)
+            df_hist_mostrar = df_historial if filtro_fecha == "Todas" else df_historial[df_historial['Fecha'] == filtro_fecha]
+
+            def pintar_historial(val):
+                if pd.isna(val): return ''
+                color = 'green' if val == 0 else 'red'
+                return f'color: {color}; font-weight: bold;'
+                
+            st.dataframe(df_hist_mostrar.drop(columns=["ID"]).style.map(pintar_historial, subset=['Diferencia']), width='stretch', hide_index=True)
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            with st.expander("🗑️ Zona de administración: Eliminar registros físicos"):
+                opcion_eliminacion = st.radio("¿Qué deseas eliminar?", ["Un ítem específico", "Un día entero de conteo"], key="del_fisico")
+                
+                if opcion_eliminacion == "Un ítem específico":
+                    opciones_borrar_historial = [f"{row['ID']} - Fecha: {row['Fecha']} | Producto: {row['Producto']}" for _, row in df_hist_mostrar.iterrows()]
+                    opciones_borrar_historial.insert(0, "Seleccione un registro...")
+                    
+                    col_del1, col_del2 = st.columns([3, 1])
+                    with col_del1:
+                        registro_a_borrar = st.selectbox("Registro:", opciones_borrar_historial, label_visibility="collapsed")
+                    with col_del2:
+                        if st.button("❌ Eliminar ítem físico"):
+                            if registro_a_borrar != "Seleccione un registro...":
+                                id_borrar = int(registro_a_borrar.split(" - ")[0])
+                                conexion = sqlite3.connect(DB_PATH)
+                                cursor = conexion.cursor()
+                                cursor.execute("DELETE FROM controles_fisicos WHERE id = ?", (id_borrar,))
+                                conexion.commit()
+                                conexion.close()
+                                st.success("¡Registro eliminado correctamente!")
+                                st.rerun()
+                else:
+                    fechas_para_borrar = list(df_historial['Fecha'].unique())
+                    fechas_para_borrar.insert(0, "Seleccione una fecha...")
+                    
+                    col_dia1, col_dia2 = st.columns([3, 1])
+                    with col_dia1:
+                        fecha_a_borrar = st.selectbox("Fecha a eliminar:", fechas_para_borrar, label_visibility="collapsed", key="f_del_dia_fis")
+                    with col_dia2:
+                        if st.button("🗑️ Borrar día físico completo"):
+                            if fecha_a_borrar != "Seleccione una fecha...":
+                                conexion = sqlite3.connect(DB_PATH)
+                                cursor = conexion.cursor()
+                                cursor.execute("DELETE FROM controles_fisicos WHERE fecha = ?", (fecha_a_borrar,))
+                                conexion.commit()
+                                conexion.close()
+                                st.success(f"¡Todos los registros del día {fecha_a_borrar} fueron eliminados!")
+                                st.rerun()
+
+    else:
+        st.markdown("#### 📦 Historial de Recepciones y Movimientos de Mercadería")
+        df_movs = cargar_historial_movimientos()
+        
+        if df_movs.empty:
+            st.info("No hay recepciones registradas todavía.")
+        else:
+            col_hf1, col_hf2 = st.columns(2)
+            with col_hf1:
+                fechas_mov_opts = ["Todas"] + list(df_movs['Fecha'].unique())
+                filtro_fecha_mov = st.selectbox("Filtrar historial por Fecha:", fechas_mov_opts)
+            with col_hf2:
+                prov_hist_opts = ["Todos"] + sorted(df_movs['Proveedor'].dropna().unique().tolist()) if 'Proveedor' in df_movs.columns else ["Todos"]
+                filtro_prov_hist = st.selectbox("Filtrar historial por Proveedor:", prov_hist_opts)
+
+            df_movs_mostrar = df_movs.copy()
+            if filtro_fecha_mov != "Todas":
+                df_movs_mostrar = df_movs_mostrar[df_movs_mostrar['Fecha'] == filtro_fecha_mov]
+            if filtro_prov_hist != "Todos":
+                df_movs_mostrar = df_movs_mostrar[df_movs_mostrar['Proveedor'] == filtro_prov_hist]
+
+            def pintar_tipo(val):
+                color = 'green' if 'Ingreso' in str(val) else 'red'
+                return f'color: {color}; font-weight: bold;'
+                
+            st.dataframe(df_movs_mostrar.drop(columns=["ID"]).style.map(pintar_tipo, subset=['Tipo']), width='stretch', hide_index=True)
+            
+            st.markdown("<br>", unsafe_allow_html=True)
+            with st.expander("🗑️ Zona de administración: Eliminar registros de recepción"):
+                opcion_eliminacion_rec = st.radio("¿Qué deseas eliminar?", ["Un ítem específico", "Un día entero de recepción"], key="del_rec")
+                
+                if opcion_eliminacion_rec == "Un ítem específico":
+                    opciones_borrar_mov = [f"{row['ID']} - Fecha: {row['Fecha']} | Producto: {row['Producto']}" for _, row in df_movs_mostrar.iterrows()]
+                    opciones_borrar_mov.insert(0, "Seleccione un registro...")
+                    
+                    col_del1, col_del2 = st.columns([3, 1])
+                    with col_del1:
+                        registro_mov_a_borrar = st.selectbox("Registro:", opciones_borrar_mov, label_visibility="collapsed")
+                    with col_del2:
+                        if st.button("❌ Eliminar ítem de recepción"):
+                            if registro_mov_a_borrar != "Seleccione un registro...":
+                                id_borrar = int(registro_mov_a_borrar.split(" - ")[0])
+                                conexion = sqlite3.connect(DB_PATH)
+                                cursor = conexion.cursor()
+                                cursor.execute("DELETE FROM movimientos_stock WHERE id = ?", (id_borrar,))
+                                conexion.commit()
+                                conexion.close()
+                                st.success("¡Registro de recepción eliminado correctamente!")
+                                st.rerun()
+                else:
+                    fechas_mov_para_borrar = list(df_movs['Fecha'].unique())
+                    fechas_mov_para_borrar.insert(0, "Seleccione una fecha...")
+                    
+                    col_dia1, col_dia2 = st.columns([3, 1])
+                    with col_dia1:
+                        fecha_mov_a_borrar = st.selectbox("Fecha a eliminar:", fechas_mov_para_borrar, label_visibility="collapsed", key="f_del_dia_rec")
+                    with col_dia2:
+                        if st.button("🗑️ Borrar día de recepción completo"):
+                            if fecha_mov_a_borrar != "Seleccione una fecha...":
+                                conexion = sqlite3.connect(DB_PATH)
+                                cursor = conexion.cursor()
+                                cursor.execute("DELETE FROM movimientos_stock WHERE fecha = ?", (fecha_mov_a_borrar,))
+                                conexion.commit()
+                                conexion.close()
+                                st.success(f"¡Todos los registros de recepción del día {fecha_mov_a_borrar} fueron eliminados!")
+                                st.rerun()
