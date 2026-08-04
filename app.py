@@ -24,6 +24,7 @@ def asegurar_base_datos():
         CREATE TABLE IF NOT EXISTS productos (
             SKU TEXT UNIQUE,
             Descripción TEXT,
+            Proveedor TEXT,
             Stock REAL,
             "Stock Reservado" REAL,
             "Stock Disponible" REAL,
@@ -52,6 +53,7 @@ def asegurar_base_datos():
             tipo TEXT,
             sku TEXT,
             producto TEXT,
+            proveedor TEXT,
             talle TEXT,
             color TEXT,
             cantidad REAL,
@@ -72,18 +74,26 @@ def sincronizar_excel_automatico():
             columnas_necesarias = ["SKU", "Nombre", "Stock", "Stock Reservado"]
             
             if all(col in df.columns for col in columnas_necesarias):
-                df_filtrado = df[columnas_necesarias].copy()
+                df_filtrado = df.copy()
+                
+                # Asegurar columna Proveedor si viene en el Excel o crearla vacía si no existe
+                if "Proveedor" not in df_filtrado.columns:
+                    df_filtrado["Proveedor"] = "General"
+                
+                cols_finales = ["SKU", "Nombre", "Proveedor", "Stock", "Stock Reservado"]
+                df_filtrado = df_filtrado[[c for c in cols_finales if c in df_filtrado.columns]].copy()
                 
                 for col in ["Stock", "Stock Reservado"]:
-                    if df_filtrado[col].dtype == object or pd.api.types.is_string_dtype(df_filtrado[col]):
-                        df_filtrado[col] = (
-                            df_filtrado[col]
-                            .astype(str)
-                            .str.replace(' ', '', regex=False)
-                            .str.replace('.', '', regex=False)
-                            .str.replace(',', '.', regex=False)
-                        )
-                        df_filtrado[col] = pd.to_numeric(df_filtrado[col], errors="coerce").fillna(0)
+                    if col in df_filtrado.columns:
+                        if df_filtrado[col].dtype == object or pd.api.types.is_string_dtype(df_filtrado[col]):
+                            df_filtrado[col] = (
+                                df_filtrado[col]
+                                .astype(str)
+                                .str.replace(' ', '', regex=False)
+                                .str.replace('.', '', regex=False)
+                                .str.replace(',', '.', regex=False)
+                            )
+                            df_filtrado[col] = pd.to_numeric(df_filtrado[col], errors="coerce").fillna(0)
                 
                 df_filtrado.rename(columns={"Nombre": "Descripción"}, inplace=True)
                 df_filtrado["Stock Disponible"] = df_filtrado["Stock"] - df_filtrado["Stock Reservado"]
@@ -103,9 +113,9 @@ def cargar_datos():
     asegurar_base_datos()
     conexion = sqlite3.connect(DB_PATH)
     try:
-        df = pd.read_sql("SELECT SKU, Descripción, Stock, \"Stock Reservado\", \"Stock Disponible\", \"Última Actualización\" FROM productos", conexion)
+        df = pd.read_sql("SELECT SKU, Descripción, Proveedor, Stock, \"Stock Reservado\", \"Stock Disponible\", \"Última Actualización\" FROM productos", conexion)
     except Exception:
-        df = pd.DataFrame(columns=["SKU", "Descripción", "Stock", "Stock Reservado", "Stock Disponible", "Última Actualización"])
+        df = pd.DataFrame(columns=["SKU", "Descripción", "Proveedor", "Stock", "Stock Reservado", "Stock Disponible", "Última Actualización"])
     conexion.close()
     return df
 
@@ -121,9 +131,9 @@ def cargar_historial():
 def cargar_historial_movimientos():
     conexion = sqlite3.connect(DB_PATH)
     try:
-        df = pd.read_sql("SELECT id AS ID, fecha AS Fecha, tipo AS Tipo, sku AS SKU, producto AS Producto, talle AS Talle, color AS Color, cantidad AS Cantidad, responsable AS Responsable, observacion AS Observación FROM movimientos_stock ORDER BY fecha DESC, id DESC", conexion)
+        df = pd.read_sql("SELECT id AS ID, fecha AS Fecha, tipo AS Tipo, sku AS SKU, producto AS Producto, proveedor AS Proveedor, talle AS Talle, color AS Color, cantidad AS Cantidad, responsable AS Responsable, observacion AS Observación FROM movimientos_stock ORDER BY fecha DESC, id DESC", conexion)
     except Exception:
-        df = pd.DataFrame(columns=["ID", "Fecha", "Tipo", "SKU", "Producto", "Talle", "Color", "Cantidad", "Responsable", "Observación"])
+        df = pd.DataFrame(columns=["ID", "Fecha", "Tipo", "SKU", "Producto", "Proveedor", "Talle", "Color", "Cantidad", "Responsable", "Observación"])
     conexion.close()
     return df
 
@@ -283,15 +293,21 @@ with tab_dash:
         st.markdown("<br><br>", unsafe_allow_html=True)
         
         with st.expander("🔍 Ventana de Búsqueda y Filtros Avanzados"):
-            busqueda = st.text_input("Filtrar por SKU o Descripción:", placeholder="Escribí aquí para buscar...")
+            f_col1, f_col2 = st.columns(2)
+            with f_col1:
+                busqueda = st.text_input("Filtrar por SKU o Descripción:", placeholder="Escribí aquí para buscar...")
+            with f_col2:
+                proveedores_disponibles = ["Todos"] + sorted(df_productos['Proveedor'].dropna().unique().tolist()) if 'Proveedor' in df_productos.columns else ["Todos"]
+                filtro_proveedor_dash = st.selectbox("Filtrar por Proveedor:", proveedores_disponibles)
 
+        df_filtrado = df_productos.copy()
         if 'busqueda' in locals() and busqueda:
-            df_filtrado = df_productos[
-                df_productos['SKU'].astype(str).str.contains(busqueda, case=False, na=False) |
-                df_productos['Descripción'].astype(str).str.contains(busqueda, case=False, na=False)
+            df_filtrado = df_filtrado[
+                df_filtrado['SKU'].astype(str).str.contains(busqueda, case=False, na=False) |
+                df_filtrado['Descripción'].astype(str).str.contains(busqueda, case=False, na=False)
             ]
-        else:
-            df_filtrado = df_productos
+        if 'filtro_proveedor_dash' in locals() and filtro_proveedor_dash != "Todos":
+            df_filtrado = df_filtrado[df_filtrado['Proveedor'] == filtro_proveedor_dash]
 
         st.markdown("<br>", unsafe_allow_html=True)
         st.dataframe(df_filtrado, width='stretch', hide_index=True)
@@ -311,7 +327,7 @@ with tab_control:
         responsable = st.text_input("👤 Responsable del Conteo", placeholder="Ej: Tamara")
 
     if not df_productos.empty:
-        opciones_buscador = df_productos.apply(lambda x: f"{x['Descripción']} | SKU: {x['SKU']}", axis=1).tolist()
+        opciones_buscador = df_productos.apply(lambda x: f"{x['Descripción']} | SKU: {x['SKU']} | Prov: {x.get('Proveedor', 'N/A')}", axis=1).tolist()
         opciones_buscador.insert(0, "Seleccione un producto...")
     else:
         opciones_buscador = ["No hay productos disponibles"]
@@ -336,7 +352,7 @@ with tab_control:
             if agregar_btn and producto_seleccionado != "Seleccione un producto..." and producto_seleccionado != "No hay productos disponibles":
                 partes = producto_seleccionado.split(" | SKU: ")
                 nombre_prod = partes[0]
-                sku_extraido = partes[1] if len(partes) > 1 else "Sin SKU"
+                sku_extraido = partes[1].split(" | Prov: ")[0] if len(partes) > 1 else "Sin SKU"
                 
                 prod_info = df_productos[df_productos['SKU'].astype(str) == str(sku_extraido).strip()]
                 stock_sis = prod_info.iloc[0]['Stock'] if not prod_info.empty else 0.0
@@ -412,7 +428,6 @@ with tab_historial:
     if df_historial.empty:
         st.info("No hay controles registrados todavía.")
     else:
-        # Filtro opcional por Fecha en el historial
         fechas_disponibles = ["Todas"] + list(df_historial['Fecha'].unique())
         filtro_fecha = st.selectbox("Filtrar historial por Fecha de Conteo:", fechas_disponibles)
         
@@ -472,11 +487,11 @@ with tab_historial:
                             st.rerun()
 
 # ==========================================
-# 4. SOLAPA: RECEPCION DE MERCADERIA
+# 4. SOLAPA: RECEPCION DE MERCADERIA (CON PROVEEDORES Y FILTRO APARTE)
 # ==========================================
 with tab_movimientos:
     st.markdown("### Recepción de Mercadería")
-    st.caption("Registra la entrada o recepción de nueva mercadería al stock.")
+    st.caption("Registra la entrada o recepción de nueva mercadería al stock vinculada a sus proveedores.")
     st.markdown("<br>", unsafe_allow_html=True)
 
     with st.form("form_movimiento", clear_on_submit=True):
@@ -486,8 +501,17 @@ with tab_movimientos:
             tipo_mov = st.selectbox("Tipo de Movimiento", ["Ingreso (+)", "Egreso (-)"])
             responsable_mov = st.text_input("👤 Responsable", placeholder="Ej: Tamara")
         with col_m2:
+            # Filtro aparte por Proveedor dentro del formulario de registro
+            lista_prov_form = sorted(df_productos['Proveedor'].dropna().unique().tolist()) if 'Proveedor' in df_productos.columns else ["General"]
+            proveedor_seleccionado_form = st.selectbox("Filtro por Proveedor (opcional)", ["Todos"] + lista_prov_form)
+            
+            # Filtrar productos según el proveedor seleccionado en el formulario
             if not df_productos.empty:
-                opciones_mov = df_productos.apply(lambda x: f"{x['Descripción']} | SKU: {x['SKU']}", axis=1).tolist()
+                df_prod_form = df_productos.copy()
+                if proveedor_seleccionado_form != "Todos":
+                    df_prod_form = df_prod_form[df_prod_form['Proveedor'] == proveedor_seleccionado_form]
+                
+                opciones_mov = df_prod_form.apply(lambda x: f"{x['Descripción']} | SKU: {x['SKU']} | Prov: {x.get('Proveedor', 'N/A')}", axis=1).tolist()
                 opciones_mov.insert(0, "Seleccione un producto...")
             else:
                 opciones_mov = ["No hay productos disponibles"]
@@ -514,26 +538,40 @@ with tab_movimientos:
             else:
                 partes = producto_mov.split(" | SKU: ")
                 nombre_p = partes[0]
-                sku_p = partes[1] if len(partes) > 1 else "Sin SKU"
+                sku_p = partes[1].split(" | Prov: ")[0] if len(partes) > 1 else "Sin SKU"
+                
+                # Obtener el proveedor real del producto seleccionado
+                prod_match = df_productos[df_productos['SKU'].astype(str) == str(sku_p).strip()]
+                prov_p = prod_match.iloc[0]['Proveedor'] if not prod_match.empty and 'Proveedor' in prod_match.columns else "General"
 
                 conexion = sqlite3.connect(DB_PATH)
                 cursor = conexion.cursor()
                 cursor.execute("""
-                    INSERT INTO movimientos_stock (fecha, tipo, sku, producto, talle, color, cantidad, responsable, observacion)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (str(fecha_mov), tipo_mov, sku_p, nombre_p, talle_mov, color_mov, float(cantidad_mov), responsable_mov, observacion_mov))
+                    INSERT INTO movimientos_stock (fecha, tipo, sku, producto, proveedor, talle, color, cantidad, responsable, observacion)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (str(fecha_mov), tipo_mov, sku_p, nombre_p, prov_p, talle_mov, color_mov, float(cantidad_mov), responsable_mov, observacion_mov))
                 conexion.commit()
                 conexion.close()
 
-                st.success(f"¡Recepción registrada correctamente para {nombre_p}!")
+                st.success(f"¡Recepción registrada correctamente para {nombre_p} (Proveedor: {prov_p})!")
 
     st.markdown("<br><hr><br>", unsafe_allow_html=True)
     st.markdown("### Historial de Recepciones")
+    
     df_movs = cargar_historial_movimientos()
     if df_movs.empty:
         st.info("No hay recepciones registradas todavía.")
     else:
+        # Filtro aparte para visualizar el historial de recepciones por Proveedor
+        prov_hist_opts = ["Todos"] + sorted(df_movs['Proveedor'].dropna().unique().tolist()) if 'Proveedor' in df_movs.columns else ["Todos"]
+        filtro_prov_hist = st.selectbox("Filtrar historial de recepciones por Proveedor:", prov_hist_opts, key="filtro_prov_hist_key")
+        
+        df_movs_mostrar = df_movs.copy()
+        if filtro_prov_hist != "Todos":
+            df_movs_mostrar = df_movs_mostrar[df_movs_mostrar['Proveedor'] == filtro_prov_hist]
+
         def pintar_tipo(val):
             color = 'green' if 'Ingreso' in str(val) else 'red'
             return f'color: {color}; font-weight: bold;'
-        st.dataframe(df_movs.drop(columns=["ID"]).style.map(pintar_tipo, subset=['Tipo']), width='stretch', hide_index=True)
+            
+        st.dataframe(df_movs_mostrar.drop(columns=["ID"]).style.map(pintar_tipo, subset=['Tipo']), width='stretch', hide_index=True)
