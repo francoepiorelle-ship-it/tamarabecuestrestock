@@ -35,6 +35,7 @@ def asegurar_base_datos():
         CREATE TABLE IF NOT EXISTS controles_fisicos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             fecha TEXT,
+            hora TEXT,
             responsable TEXT,
             sku TEXT,
             producto TEXT,
@@ -50,6 +51,7 @@ def asegurar_base_datos():
         CREATE TABLE IF NOT EXISTS movimientos_stock (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             fecha TEXT,
+            hora TEXT,
             tipo TEXT,
             sku TEXT,
             producto TEXT,
@@ -121,18 +123,18 @@ def cargar_datos():
 def cargar_historial():
     conexion = sqlite3.connect(DB_PATH)
     try:
-        df = pd.read_sql("SELECT id AS ID, fecha AS Fecha, responsable AS Responsable, sku AS SKU, producto AS Producto, talle AS Talle, color AS Color, stock_fisico AS 'Stock Físico', stock_sistema AS 'Stock Sistema', diferencia AS Diferencia FROM controles_fisicos ORDER BY fecha DESC, id DESC", conexion)
+        df = pd.read_sql("SELECT id AS ID, fecha AS Fecha, hora AS Hora, responsable AS Responsable, sku AS SKU, producto AS Producto, talle AS Talle, color AS Color, stock_fisico AS 'Stock Físico', stock_sistema AS 'Stock Sistema', diferencia AS Diferencia FROM controles_fisicos ORDER BY fecha DESC, hora DESC, id DESC", conexion)
     except Exception:
-        df = pd.DataFrame(columns=["ID", "Fecha", "Responsable", "SKU", "Producto", "Talle", "Color", "Stock Físico", "Stock Sistema", "Diferencia"])
+        df = pd.DataFrame(columns=["ID", "Fecha", "Hora", "Responsable", "SKU", "Producto", "Talle", "Color", "Stock Físico", "Stock Sistema", "Diferencia"])
     conexion.close()
     return df
 
 def cargar_historial_movimientos():
     conexion = sqlite3.connect(DB_PATH)
     try:
-        df = pd.read_sql("SELECT id AS ID, fecha AS Fecha, tipo AS Tipo, sku AS SKU, producto AS Producto, proveedor AS Proveedor, talle AS Talle, color AS Color, cantidad AS Cantidad, responsable AS Responsable, observacion AS Observación FROM movimientos_stock ORDER BY fecha DESC, id DESC", conexion)
+        df = pd.read_sql("SELECT id AS ID, fecha AS Fecha, hora AS Hora, tipo AS Tipo, sku AS SKU, producto AS Producto, proveedor AS Proveedor, talle AS Talle, color AS Color, cantidad AS Cantidad, responsable AS Responsable, observacion AS Observación FROM movimientos_stock ORDER BY fecha DESC, hora DESC, id DESC", conexion)
     except Exception:
-        df = pd.DataFrame(columns=["ID", "Fecha", "Tipo", "SKU", "Producto", "Proveedor", "Talle", "Color", "Cantidad", "Responsable", "Observación"])
+        df = pd.DataFrame(columns=["ID", "Fecha", "Hora", "Tipo", "SKU", "Producto", "Proveedor", "Talle", "Color", "Cantidad", "Responsable", "Observación"])
     conexion.close()
     return df
 
@@ -271,7 +273,7 @@ with col_head2:
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-tab_dash, tab_control, tab_movimientos, tab_historial = st.tabs(["📊 Dashboard General", "📋 Control Físico por Día", "📦 Recepción de Mercadería por Día", "📂 Historial y Auditorías"])
+tab_dash, tab_control, tab_movimientos, tab_historial = st.tabs(["📊 Dashboard General", "📋 Control Físico (Múltiples tandas)", "📦 Recepción de Mercadería (Múltiples tandas)", "📂 Historial y Auditorías"])
 
 # ==========================================
 # 1. SOLAPA: DASHBOARD GENERAL
@@ -315,18 +317,18 @@ with tab_dash:
         st.dataframe(df_filtrado, width='stretch', hide_index=True)
 
 # ==========================================
-# 2. SOLAPA: CONTROL FÍSICO POR DÍA
+# 2. SOLAPA: CONTROL FÍSICO (MÚLTIPLES SESIONES)
 # ==========================================
 with tab_control:
-    st.markdown("### Auditoría de Stock Físico por Jornada")
-    st.caption("Agrupá el conteo de múltiples productos realizados en un día específico y guardalos en conjunto.")
+    st.markdown("### Auditoría de Stock Físico (Múltiples controles por día)")
+    st.caption("Podes realizar varios conteos en el mismo día (ej. turno mañana y turno tarde) guardándolos de forma independiente.")
     st.markdown("<br>", unsafe_allow_html=True)
     
     col_fecha, col_resp = st.columns(2)
     with col_fecha:
-        fecha_control = st.date_input("📅 Fecha del Conteo Diario", datetime.date.today())
+        fecha_control = st.date_input("📅 Fecha del Conteo", datetime.date.today(), key="f_ctrl_dia")
     with col_resp:
-        responsable = st.text_input("👤 Responsable del Conteo", placeholder="Ej: Tamara")
+        responsable = st.text_input("👤 Responsable del Conteo", placeholder="Ej: Tamara", key="resp_ctrl_dia")
 
     if not df_productos.empty:
         opciones_buscador = df_productos.apply(lambda x: f"{x['Descripción']} | SKU: {x['SKU']} | Prov: {x.get('Proveedor', 'N/A')}", axis=1).tolist()
@@ -336,7 +338,7 @@ with tab_control:
 
     st.markdown("<br>", unsafe_allow_html=True)
     with st.container():
-        st.markdown("#### ➕ Agregar Producto al Conteo del Día")
+        st.markdown("#### ➕ Agregar Producto a la Tanda Actual de Conteo")
         with st.form("form_conteo_dia", clear_on_submit=True):
             col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
             with col1:
@@ -349,7 +351,7 @@ with tab_control:
                 stock_fisico_input = st.number_input("Stock Físico", min_value=0, step=1)
                 
             st.markdown("<br>", unsafe_allow_html=True)
-            agregar_btn = st.form_submit_button("Agregar a la sesión de hoy")
+            agregar_btn = st.form_submit_button("Agregar a la tanda de hoy")
             
             if agregar_btn and producto_seleccionado != "Seleccione un producto..." and producto_seleccionado != "No hay productos disponibles":
                 partes = producto_seleccionado.split(" | SKU: ")
@@ -369,11 +371,11 @@ with tab_control:
                     "Stock Sistema": stock_sis,
                     "Diferencia": diferencia
                 })
-                st.success(f"¡Agregado a la lista del día! ({nombre_prod})")
+                st.success(f"¡Agregado a la tanda! ({nombre_prod})")
 
     if st.session_state.lista_control:
         st.markdown("<br><hr><br>", unsafe_allow_html=True)
-        st.markdown(f"### 📋 Resumen de Conteo para el día: {fecha_control}")
+        st.markdown(f"### 📋 Tanda Actual de Conteo ({fecha_control})")
         df_control_actual = pd.DataFrame(st.session_state.lista_control)
         
         def pintar_diferencia(val):
@@ -382,7 +384,7 @@ with tab_control:
         
         st.dataframe(df_control_actual.style.map(pintar_diferencia, subset=['Diferencia']), width='stretch')
         
-        with st.expander("⚙️ Opciones de edición y corrección de la lista actual"):
+        with st.expander("⚙️ Opciones de edición y corrección de la tanda actual"):
             col_err1, col_err2, col_err3 = st.columns([2, 1, 1])
             with col_err1:
                 opciones_borrar = [f"{i} - {item['Producto']} (Stock Físico: {item['Stock Físico']})" for i, item in enumerate(st.session_state.lista_control)]
@@ -394,44 +396,44 @@ with tab_control:
                         st.session_state.lista_control.pop(indice)
                         st.rerun()
             with col_err3:
-                if st.button("🧹 Vaciar todo"):
+                if st.button("🧹 Vaciar tanda"):
                     st.session_state.lista_control = []
                     st.rerun()
                 
         st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("💾 Guardar Conteo del Día en el Historial"):
+        if st.button("💾 Guardar Tanda en el Historial"):
             if not responsable:
                 st.error("Por favor, ingresá el nombre del responsable antes de guardar.")
             else:
+                hora_arg = datetime.datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).strftime("%H:%M:%S")
                 conexion = sqlite3.connect(DB_PATH)
                 cursor = conexion.cursor()
                 for item in st.session_state.lista_control:
                     cursor.execute("""
-                        INSERT INTO controles_fisicos (fecha, responsable, sku, producto, talle, color, stock_fisico, stock_sistema, diferencia)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (str(fecha_control), responsable, item['SKU'], item['Producto'], item['Talle'], item['Color'], item['Stock Físico'], item['Stock Sistema'], item['Diferencia']))
+                        INSERT INTO controles_fisicos (fecha, hora, responsable, sku, producto, talle, color, stock_fisico, stock_sistema, diferencia)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (str(fecha_control), hora_arg, responsable, item['SKU'], item['Producto'], item['Talle'], item['Color'], item['Stock Físico'], item['Stock Sistema'], item['Diferencia']))
                 conexion.commit()
                 conexion.close()
                 
                 st.session_state.lista_control = []
-                st.success(f"¡Conteo del día {fecha_control} guardado exitosamente en el historial!")
+                st.success(f"¡Tanda de control guardada exitosamente a las {hora_arg}!")
                 st.rerun()
 
 # ==========================================
-# 3. SOLAPA: RECEPCION DE MERCADERIA POR DÍA
+# 3. SOLAPA: RECEPCIÓN DE MERCADERÍA (MÚLTIPLES TANDAS)
 # ==========================================
 with tab_movimientos:
-    st.markdown("### Recepción de Mercadería por Jornada")
-    st.caption("Agrupá la entrada o salida de múltiples productos en una misma fecha y guárdalos en conjunto.")
+    st.markdown("### Recepción de Mercadería (Múltiples tandas por día)")
+    st.caption("Podes registrar varias recepciones o envíos independientes a lo largo del día.")
     st.markdown("<br>", unsafe_allow_html=True)
     
     col_mfech, col_mresp = st.columns(2)
     with col_mfech:
-        fecha_recepcion_dia = st.date_input("📅 Fecha de Recepción / Movimiento", datetime.date.today(), key="f_rec_dia")
+        fecha_recepcion_dia = st.date_input("📅 Fecha de Recepción", datetime.date.today(), key="f_rec_dia")
     with col_mresp:
         responsable_recepcion = st.text_input("👤 Responsable de la Recepción", placeholder="Ej: Tamara", key="resp_rec_dia")
 
-    # Filtro aparte por Proveedor dentro del formulario
     lista_prov_form = sorted(df_productos['Proveedor'].dropna().unique().tolist()) if 'Proveedor' in df_productos.columns else ["General"]
     proveedor_seleccionado_form = st.selectbox("Filtrar por Proveedor (opcional):", ["Todos"] + lista_prov_form, key="prov_rec_filtro")
 
@@ -447,7 +449,7 @@ with tab_movimientos:
 
     st.markdown("<br>", unsafe_allow_html=True)
     with st.container():
-        st.markdown("#### ➕ Agregar Producto a la Recepción del Día")
+        st.markdown("#### ➕ Agregar Producto a la Tanda de Recepción")
         with st.form("form_recepcion_dia", clear_on_submit=True):
             col_d1, col_d2, col_d3, col_d4, col_d5 = st.columns([2.5, 1, 1, 1, 1])
             with col_d1:
@@ -461,10 +463,10 @@ with tab_movimientos:
             with col_d5:
                 color_mov = st.text_input("Color")
             
-            observacion_mov = st.text_input("Observación / Motivo", placeholder="Ej: Reposición de stock o compra")
+            observacion_mov = st.text_input("Observación / Motivo", placeholder="Ej: Compra a proveedor / Remito X")
             
             st.markdown("<br>", unsafe_allow_html=True)
-            agregar_rec_btn = st.form_submit_button("Agregar a la sesión de recepción de hoy")
+            agregar_rec_btn = st.form_submit_button("Agregar a la tanda de recepción")
             
             if agregar_rec_btn and producto_mov not in ["Seleccione un producto...", "No hay productos disponibles"]:
                 partes = producto_mov.split(" | SKU: ")
@@ -484,11 +486,11 @@ with tab_movimientos:
                     "Cantidad": float(cantidad_mov),
                     "Observación": observacion_mov
                 })
-                st.success(f"¡Agregado a la recepción del día! ({nombre_p})")
+                st.success(f"¡Agregado a la tanda! ({nombre_p})")
 
     if st.session_state.lista_recepcion:
         st.markdown("<br><hr><br>", unsafe_allow_html=True)
-        st.markdown(f"### 📋 Resumen de Recepción para el día: {fecha_recepcion_dia}")
+        st.markdown(f"### 📋 Tanda Actual de Recepción ({fecha_recepcion_dia})")
         df_rec_actual = pd.DataFrame(st.session_state.lista_recepcion)
         
         def pintar_tipo_sesion(val):
@@ -497,84 +499,88 @@ with tab_movimientos:
         
         st.dataframe(df_rec_actual.style.map(pintar_tipo_sesion, subset=['Tipo']), width='stretch')
         
-        with st.expander("⚙️ Opciones de edición y corrección de la lista actual de recepción"):
+        with st.expander("⚙️ Opciones de edición y corrección de la tanda actual"):
             col_err1, col_err2, col_err3 = st.columns([2, 1, 1])
             with col_err1:
                 opciones_borrar_rec = [f"{i} - {item['Producto']} (Cant: {item['Cantidad']})" for i, item in enumerate(st.session_state.lista_recepcion)]
                 item_rec_a_borrar = st.selectbox("Elegí cuál borrar:", opciones_borrar_rec, label_visibility="collapsed")
             with col_err2:
-                if st.button("❌ Borrar ítem de recepción"):
+                if st.button("❌ Borrar ítem"):
                     if item_rec_a_borrar:
                         indice = int(item_rec_a_borrar.split(" - ")[0])
                         st.session_state.lista_recepcion.pop(indice)
                         st.rerun()
             with col_err3:
-                if st.button("🧹 Vaciar lista de recepción"):
+                if st.button("🧹 Vaciar tanda"):
                     st.session_state.lista_recepcion = []
                     st.rerun()
                 
         st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("💾 Guardar Recepción del Día en el Historial"):
+        if st.button("💾 Guardar Tanda de Recepción en el Historial"):
             if not responsable_recepcion:
                 st.error("Por favor, ingresá el nombre del responsable antes de guardar.")
             else:
+                hora_arg = datetime.datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).strftime("%H:%M:%S")
                 conexion = sqlite3.connect(DB_PATH)
                 cursor = conexion.cursor()
                 for item in st.session_state.lista_recepcion:
                     cursor.execute("""
-                        INSERT INTO movimientos_stock (fecha, tipo, sku, producto, proveedor, talle, color, cantidad, responsable, observacion)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (str(fecha_recepcion_dia), item['Tipo'], item['SKU'], item['Producto'], item['Proveedor'], item['Talle'], item['Color'], item['Cantidad'], responsable_recepcion, item['Observación']))
+                        INSERT INTO movimientos_stock (fecha, hora, tipo, sku, producto, proveedor, talle, color, cantidad, responsable, observacion)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (str(fecha_recepcion_dia), hora_arg, item['Tipo'], item['SKU'], item['Producto'], item['Proveedor'], item['Talle'], item['Color'], item['Cantidad'], responsable_recepcion, item['Observación']))
                 conexion.commit()
                 conexion.close()
                 
                 st.session_state.lista_recepcion = []
-                st.success(f"¡Recepción del día {fecha_recepcion_dia} guardada exitosamente en el historial unificado!")
+                st.success(f"¡Tanda de recepción guardada exitosamente a las {hora_arg}!")
                 st.rerun()
 
 # ==========================================
-# 4. SOLAPA: HISTORIAL Y AUDITORÍAS (EN CONJUNTO)
+# 4. SOLAPA: HISTORIAL Y AUDITORÍAS (SEPARADO POR TANDAS Y HORAS)
 # ==========================================
 with tab_historial:
-    st.markdown("### Historial y Auditorías en Conjunto")
-    st.caption("Consulta unificada de todos los controles físicos de stock y las recepciones de mercadería registradas.")
+    st.markdown("### Historial y Auditorías Separadas por Tandas")
+    st.caption("Visualiza cada control o recepción de forma totalmente independiente, diferenciando las distintas tandas u horarios realizados en el mismo día.")
     st.markdown("<br>", unsafe_allow_html=True)
     
     tipo_historial_seleccionado = st.radio("Seleccione el tipo de historial a visualizar:", ["Control Físico de Stock", "Recepción / Movimientos de Mercadería"], horizontal=True)
     st.markdown("<br>", unsafe_allow_html=True)
 
     if tipo_historial_seleccionado == "Control Físico de Stock":
-        st.markdown("#### 📋 Historial de Controles Físicos")
+        st.markdown("#### 📋 Historial de Controles Físicos (por Tandas / Horas)")
         df_historial = cargar_historial()
         
         if df_historial.empty:
             st.info("No hay controles físicos registrados todavía.")
         else:
-            fechas_disponibles = ["Todas"] + list(df_historial['Fecha'].unique())
-            filtro_fecha = st.selectbox("Filtrar historial físico por Fecha:", fechas_disponibles)
+            # Selector para separar por tandas específicas (Fecha + Hora + Responsable)
+            df_historial['Tanda_Label'] = df_historial.apply(lambda r: f"Fecha: {r['Fecha']} | Hora: {r['Hora']} | Resp: {r['Responsable']}", axis=1)
+            tandas_fisicas_disponibles = ["Todas las tandas"] + list(df_historial['Tanda_Label'].unique())
             
-            df_hist_mostrar = df_historial if filtro_fecha == "Todas" else df_historial[df_historial['Fecha'] == filtro_fecha]
+            filtro_tanda_fisica = st.selectbox("🔍 Filtrar por Tanda específica (Fecha y Hora):", tandas_fisicas_disponibles)
+            
+            df_hist_mostrar = df_historial if filtro_tanda_fisica == "Todas las tandas" else df_historial[df_historial['Tanda_Label'] == filtro_tanda_fisica]
 
             def pintar_historial(val):
                 if pd.isna(val): return ''
                 color = 'green' if val == 0 else 'red'
                 return f'color: {color}; font-weight: bold;'
                 
-            st.dataframe(df_hist_mostrar.drop(columns=["ID"]).style.map(pintar_historial, subset=['Diferencia']), width='stretch', hide_index=True)
+            st.dataframe(df_hist_mostrar.drop(columns=["ID", "Tanda_Label"]).style.map(pintar_historial, subset=['Diferencia']), width='stretch', hide_index=True)
             
             st.markdown("<br>", unsafe_allow_html=True)
-            with st.expander("🗑️ Zona de administración: Eliminar registros físicos"):
-                opcion_eliminacion = st.radio("¿Qué deseas eliminar?", ["Un ítem específico", "Un día entero de conteo"], key="del_fisico")
+            with st.expander("🗑️ Zona de administración: Eliminar tandas o registros específicos"):
+                opcion_eliminacion = st.radio("¿Qué deseas eliminar?", ["Un ítem específico de una tanda", "Una tanda entera (por hora)", "Un día entero completo"], key="del_fisico")
                 
-                if opcion_eliminacion == "Un ítem específico":
-                    opciones_borrar_historial = [f"{row['ID']} - Fecha: {row['Fecha']} | Producto: {row['Producto']}" for _, row in df_hist_mostrar.iterrows()]
+                if opcion_eliminacion == "Un ítem específico de una tanda":
+                    opciones_borrar_historial = [f"{row['ID']} - [{row['Fecha']} {row['Hora']}] {row['Producto']}" for _, row in df_hist_mostrar.iterrows()]
                     opciones_borrar_historial.insert(0, "Seleccione un registro...")
                     
                     col_del1, col_del2 = st.columns([3, 1])
                     with col_del1:
                         registro_a_borrar = st.selectbox("Registro:", opciones_borrar_historial, label_visibility="collapsed")
                     with col_del2:
-                        if st.button("❌ Eliminar ítem físico"):
+                        if st.button("❌ Eliminar ítem"):
                             if registro_a_borrar != "Seleccione un registro...":
                                 id_borrar = int(registro_a_borrar.split(" - ")[0])
                                 conexion = sqlite3.connect(DB_PATH)
@@ -582,7 +588,27 @@ with tab_historial:
                                 cursor.execute("DELETE FROM controles_fisicos WHERE id = ?", (id_borrar,))
                                 conexion.commit()
                                 conexion.close()
-                                st.success("¡Registro eliminado correctamente!")
+                                st.success("¡Registro eliminado!")
+                                st.rerun()
+                elif opcion_eliminacion == "Una tanda entera (por hora)":
+                    sesiones_disponibles = df_historial.apply(lambda r: f"Fecha: {r['Fecha']} - Hora: {r['Hora']} - Resp: {r['Responsable']}", axis=1).unique().tolist()
+                    sesiones_disponibles.insert(0, "Seleccione una tanda...")
+                    
+                    col_s1, col_s2 = st.columns([3, 1])
+                    with col_s1:
+                        sesion_a_borrar = st.selectbox("Tanda:", sesiones_disponibles, label_visibility="collapsed")
+                    with col_s2:
+                        if st.button("🗑️ Borrar tanda entera"):
+                            if sesion_a_borrar != "Seleccione una tanda...":
+                                partes_s = sesion_a_borrar.split(" - ")
+                                f_val = partes_s[0].replace("Fecha: ", "")
+                                h_val = partes_s[1].replace("Hora: ", "")
+                                conexion = sqlite3.connect(DB_PATH)
+                                cursor = conexion.cursor()
+                                cursor.execute("DELETE FROM controles_fisicos WHERE fecha = ? AND hora = ?", (f_val, h_val))
+                                conexion.commit()
+                                conexion.close()
+                                st.success("¡Tanda eliminada correctamente!")
                                 st.rerun()
                 else:
                     fechas_para_borrar = list(df_historial['Fecha'].unique())
@@ -592,34 +618,36 @@ with tab_historial:
                     with col_dia1:
                         fecha_a_borrar = st.selectbox("Fecha a eliminar:", fechas_para_borrar, label_visibility="collapsed", key="f_del_dia_fis")
                     with col_dia2:
-                        if st.button("🗑️ Borrar día físico completo"):
+                        if st.button("🗑️ Borrar día completo"):
                             if fecha_a_borrar != "Seleccione una fecha...":
                                 conexion = sqlite3.connect(DB_PATH)
                                 cursor = conexion.cursor()
                                 cursor.execute("DELETE FROM controles_fisicos WHERE fecha = ?", (fecha_a_borrar,))
                                 conexion.commit()
                                 conexion.close()
-                                st.success(f"¡Todos los registros del día {fecha_a_borrar} fueron eliminados!")
+                                st.success("¡Día completo eliminado!")
                                 st.rerun()
 
     else:
-        st.markdown("#### 📦 Historial de Recepciones y Movimientos de Mercadería")
+        st.markdown("#### 📦 Historial de Recepciones y Movimientos (por Tandas / Horas)")
         df_movs = cargar_historial_movimientos()
         
         if df_movs.empty:
             st.info("No hay recepciones registradas todavía.")
         else:
+            df_movs['Tanda_Label'] = df_movs.apply(lambda r: f"Fecha: {r['Fecha']} | Hora: {r['Hora']} | Prov: {r['Proveedor']} | Resp: {r['Responsable']}", axis=1)
+            tandas_movs_disponibles = ["Todas las tandas"] + list(df_movs['Tanda_Label'].unique())
+            
             col_hf1, col_hf2 = st.columns(2)
             with col_hf1:
-                fechas_mov_opts = ["Todas"] + list(df_movs['Fecha'].unique())
-                filtro_fecha_mov = st.selectbox("Filtrar historial por Fecha:", fechas_mov_opts)
+                filtro_tanda_mov = st.selectbox("🔍 Filtrar por Tanda específica (Fecha y Hora):", tandas_movs_disponibles)
             with col_hf2:
                 prov_hist_opts = ["Todos"] + sorted(df_movs['Proveedor'].dropna().unique().tolist()) if 'Proveedor' in df_movs.columns else ["Todos"]
                 filtro_prov_hist = st.selectbox("Filtrar historial por Proveedor:", prov_hist_opts)
 
             df_movs_mostrar = df_movs.copy()
-            if filtro_fecha_mov != "Todas":
-                df_movs_mostrar = df_movs_mostrar[df_movs_mostrar['Fecha'] == filtro_fecha_mov]
+            if filtro_tanda_mov != "Todas las tandas":
+                df_movs_mostrar = df_movs_mostrar[df_movs_mostrar['Tanda_Label'] == filtro_tanda_mov]
             if filtro_prov_hist != "Todos":
                 df_movs_mostrar = df_movs_mostrar[df_movs_mostrar['Proveedor'] == filtro_prov_hist]
 
@@ -627,21 +655,21 @@ with tab_historial:
                 color = 'green' if 'Ingreso' in str(val) else 'red'
                 return f'color: {color}; font-weight: bold;'
                 
-            st.dataframe(df_movs_mostrar.drop(columns=["ID"]).style.map(pintar_tipo, subset=['Tipo']), width='stretch', hide_index=True)
+            st.dataframe(df_movs_mostrar.drop(columns=["ID", "Tanda_Label"]).style.map(pintar_tipo, subset=['Tipo']), width='stretch', hide_index=True)
             
             st.markdown("<br>", unsafe_allow_html=True)
-            with st.expander("🗑️ Zona de administración: Eliminar registros de recepción"):
-                opcion_eliminacion_rec = st.radio("¿Qué deseas eliminar?", ["Un ítem específico", "Un día entero de recepción"], key="del_rec")
+            with st.expander("🗑️ Zona de administración: Eliminar tandas o registros específicos"):
+                opcion_eliminacion_rec = st.radio("¿Qué deseas eliminar?", ["Un ítem específico de una tanda", "Una tanda entera (por hora)", "Un día entero completo"], key="del_rec")
                 
-                if opcion_eliminacion_rec == "Un ítem específico":
-                    opciones_borrar_mov = [f"{row['ID']} - Fecha: {row['Fecha']} | Producto: {row['Producto']}" for _, row in df_movs_mostrar.iterrows()]
+                if opcion_eliminacion_rec == "Un ítem específico de una tanda":
+                    opciones_borrar_mov = [f"{row['ID']} - [{row['Fecha']} {row['Hora']}] {row['Producto']}" for _, row in df_movs_mostrar.iterrows()]
                     opciones_borrar_mov.insert(0, "Seleccione un registro...")
                     
                     col_del1, col_del2 = st.columns([3, 1])
                     with col_del1:
                         registro_mov_a_borrar = st.selectbox("Registro:", opciones_borrar_mov, label_visibility="collapsed")
                     with col_del2:
-                        if st.button("❌ Eliminar ítem de recepción"):
+                        if st.button("❌ Eliminar ítem"):
                             if registro_mov_a_borrar != "Seleccione un registro...":
                                 id_borrar = int(registro_mov_a_borrar.split(" - ")[0])
                                 conexion = sqlite3.connect(DB_PATH)
@@ -649,7 +677,28 @@ with tab_historial:
                                 cursor.execute("DELETE FROM movimientos_stock WHERE id = ?", (id_borrar,))
                                 conexion.commit()
                                 conexion.close()
-                                st.success("¡Registro de recepción eliminado correctamente!")
+                                st.success("¡Registro eliminado!")
+                                st.rerun()
+                elif opcion_eliminacion_rec == "Una tanda entera (por hora)":
+                    tandas_disponibles = df_movs['Tanda_Label'].unique().tolist()
+                    tandas_disponibles.insert(0, "Seleccione una tanda...")
+                    
+                    col_t1, col_t2 = st.columns([3, 1])
+                    with col_t1:
+                        tanda_a_borrar = st.selectbox("Tanda:", tandas_disponibles, label_visibility="collapsed")
+                    with col_t2:
+                        if st.button("🗑️ Borrar tanda entera"):
+                            if tanda_a_borrar != "Seleccione una tanda...":
+                                # Extraer fecha y hora de la etiqueta
+                                partes_t = tanda_a_borrar.split(" | ")
+                                f_val = partes_t[0].replace("Fecha: ", "")
+                                h_val = partes_t[1].replace("Hora: ", "")
+                                conexion = sqlite3.connect(DB_PATH)
+                                cursor = conexion.cursor()
+                                cursor.execute("DELETE FROM movimientos_stock WHERE fecha = ? AND hora = ?", (f_val, h_val))
+                                conexion.commit()
+                                conexion.close()
+                                st.success("¡Tanda eliminada correctamente!")
                                 st.rerun()
                 else:
                     fechas_mov_para_borrar = list(df_movs['Fecha'].unique())
@@ -659,12 +708,12 @@ with tab_historial:
                     with col_dia1:
                         fecha_mov_a_borrar = st.selectbox("Fecha a eliminar:", fechas_mov_para_borrar, label_visibility="collapsed", key="f_del_dia_rec")
                     with col_dia2:
-                        if st.button("🗑️ Borrar día de recepción completo"):
+                        if st.button("🗑️ Borrar día completo"):
                             if fecha_mov_a_borrar != "Seleccione una fecha...":
                                 conexion = sqlite3.connect(DB_PATH)
                                 cursor = conexion.cursor()
                                 cursor.execute("DELETE FROM movimientos_stock WHERE fecha = ?", (fecha_mov_a_borrar,))
                                 conexion.commit()
                                 conexion.close()
-                                st.success(f"¡Todos los registros de recepción del día {fecha_mov_a_borrar} fueron eliminados!")
+                                st.success("¡Día completo eliminado!")
                                 st.rerun()
