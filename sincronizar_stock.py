@@ -115,6 +115,24 @@ def ejecutar_sincronizacion_completa():
             conn.close()
             log("✅ ¡Base de datos local actualizada correctamente!")
 
+        # Rescatar los subrubros anteriores si la base de datos ya existe
+            subrubros_guardados = {}
+            if db_path.exists():
+                try:
+                    conn_temp = sqlite3.connect(db_path)
+                    query_check = "SELECT SKU, Subrubro FROM stock"
+                    df_antiguo = pd.read_sql(query_check, conn_temp)
+                    conn_temp.close()
+                    
+                    for _, row in df_antiguo.iterrows():
+                        sku = row["SKU"]
+                        subrubro = row["Subrubro"]
+                        if pd.notna(subrubro) and str(subrubro).lower() != "none":
+                            subrubros_guardados[sku] = subrubro
+                    log(f"📋 Se recuperaron {len(subrubros_guardados)} subrubros de la base anterior.")
+                except Exception as e:
+                    log(f"⚠️ No se pudo leer el subrubro anterior (puede ser la primera ejecución): {e}")
+
         # ==========================================
         # PASO 3: Copiar archivo y subir a GitHub
         # ==========================================
