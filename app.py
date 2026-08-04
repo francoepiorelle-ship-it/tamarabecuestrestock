@@ -274,7 +274,6 @@ with tab_dash:
 
 # ==========================================
 # 2. SOLAPA: CONTROL FÍSICO POR DÍA
-# =name tab_control
 # ==========================================
 with tab_control:
     st.markdown("### Auditoría de Stock Físico por Jornada")
@@ -406,23 +405,44 @@ with tab_historial:
         st.dataframe(df_hist_mostrar.drop(columns=["ID"]).style.map(pintar_historial, subset=['Diferencia']), width='stretch', hide_index=True)
         
         st.markdown("<br>", unsafe_allow_html=True)
-        with st.expander("🗑️ Zona de administración: Eliminar registros del historial"):
-            opciones_borrar_historial = [f"{row['ID']} - Fecha: {row['Fecha']} | Producto: {row['Producto']}" for _, row in df_hist_mostrar.iterrows()]
-            opciones_borrar_historial.insert(0, "Seleccione un registro...")
+        with st.expander("🗑️ Zona de administración: Eliminar registros o días enteros"):
+            opcion_eliminacion = st.radio("¿Qué deseas eliminar?", ["Un ítem específico", "Un día entero de conteo"])
             
-            col_del1, col_del2 = st.columns([3, 1])
-            with col_del1:
-                registro_a_borrar = st.selectbox("Registro:", opciones_borrar_historial, label_visibility="collapsed")
-            with col_del2:
-                if st.button("❌ Eliminar registro"):
-                    if registro_a_borrar != "Seleccione un registro...":
-                        id_borrar = int(registro_a_borrar.split(" - ")[0].replace("Fecha: ", ""))
-                        
-                        conexion = sqlite3.connect(DB_PATH)
-                        cursor = conexion.cursor()
-                        cursor.execute("DELETE FROM controles_fisicos WHERE id = ?", (id_borrar,))
-                        conexion.commit()
-                        conexion.close()
-                        
-                        st.success("¡Registro eliminado correctamente!")
-                        st.rerun()
+            if opcion_eliminacion == "Un ítem específico":
+                opciones_borrar_historial = [f"{row['ID']} - Fecha: {row['Fecha']} | Producto: {row['Producto']}" for _, row in df_hist_mostrar.iterrows()]
+                opciones_borrar_historial.insert(0, "Seleccione un registro...")
+                
+                col_del1, col_del2 = st.columns([3, 1])
+                with col_del1:
+                    registro_a_borrar = st.selectbox("Registro:", opciones_borrar_historial, label_visibility="collapsed")
+                with col_del2:
+                    if st.button("❌ Eliminar ítem"):
+                        if registro_a_borrar != "Seleccione un registro...":
+                            id_borrar = int(registro_a_borrar.split(" - ")[0])
+                            
+                            conexion = sqlite3.connect(DB_PATH)
+                            cursor = conexion.cursor()
+                            cursor.execute("DELETE FROM controles_fisicos WHERE id = ?", (id_borrar,))
+                            conexion.commit()
+                            conexion.close()
+                            
+                            st.success("¡Registro eliminado correctamente!")
+                            st.rerun()
+            else:
+                fechas_para_borrar = list(df_historial['Fecha'].unique())
+                fechas_para_borrar.insert(0, "Seleccione una fecha...")
+                
+                col_dia1, col_dia2 = st.columns([3, 1])
+                with col_dia1:
+                    fecha_a_borrar = st.selectbox("Fecha a eliminar:", fechas_para_borrar, label_visibility="collapsed")
+                with col_dia2:
+                    if st.button("🗑️ Borrar día completo"):
+                        if fecha_a_borrar != "Seleccione una fecha...":
+                            conexion = sqlite3.connect(DB_PATH)
+                            cursor = conexion.cursor()
+                            cursor.execute("DELETE FROM controles_fisicos WHERE fecha = ?", (fecha_a_borrar,))
+                            conexion.commit()
+                            conexion.close()
+                            
+                            st.success(f"¡Todos los registros del día {fecha_a_borrar} fueron eliminados exitosamente!")
+                            st.rerun()
