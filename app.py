@@ -94,12 +94,20 @@ def sincronizar_excel_automatico():
     if ruta_excel.exists():
         try:
             df = pd.read_excel(ruta_excel)
+            
+            # Normalizar nombres de columnas (quitar espacios a los costados) para evitar descalces como 'Sub Rubro'
+            df.columns = df.columns.str.strip()
+            
+            # Mapeo flexible por si viene como 'Sub Rubro' con espacio
+            if "Sub Rubro" in df.columns and "Subrubro" not in df.columns:
+                df.rename(columns={"Sub Rubro": "Subrubro"}, inplace=True)
+
             columnas_necesarias = ["SKU", "Nombre", "Stock", "Stock Reservado"]
             
             if all(col in df.columns for col in columnas_necesarias):
                 df_filtrado = df.copy()
                 
-                # Asignación segura de columnas opcionales sin etiquetas genéricas si no existen
+                # Asignación segura de columnas opcionales
                 if "Proveedor" not in df_filtrado.columns:
                     df_filtrado["Proveedor"] = None
                 if "Rubro" not in df_filtrado.columns:
