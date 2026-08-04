@@ -8,7 +8,7 @@ import io
 
 # Configuración inicial de la página
 st.set_page_config(
-    page_title="GestionTamaraB - Control de Stock",
+    page_title="GestíonTamaraB - Control de Stock",
     page_icon="📦",
     layout="wide",
     initial_sidebar_state="collapsed"
