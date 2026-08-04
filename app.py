@@ -259,7 +259,7 @@ with col_head2:
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-tab_dash, tab_control, tab_historial, tab_movimientos = st.tabs(["📊 Dashboard General", "📋 Control Físico por Día", "📂 Historial de Auditorías", "🔄 Ingresos / Egreso Stock"])
+tab_dash, tab_control, tab_historial, tab_movimientos = st.tabs(["📊 Dashboard General", "📋 Control Físico por Día", "📂 Historial de Auditorías", "📦 Recepcion de mercaderia"])
 
 # ==========================================
 # 1. SOLAPA: DASHBOARD GENERAL
@@ -472,17 +472,17 @@ with tab_historial:
                             st.rerun()
 
 # ==========================================
-# 4. SOLAPA: INGRESOS / EGRESO STOCK
+# 4. SOLAPA: RECEPCION DE MERCADERIA
 # ==========================================
 with tab_movimientos:
-    st.markdown("### Registro de Ingresos y Egresos de Stock")
-    st.caption("Registra entradas (compras, devoluciones) o salidas (ventas manuales, pérdidas) de mercadería.")
+    st.markdown("### Recepción de Mercadería")
+    st.caption("Registra la entrada o recepción de nueva mercadería al stock.")
     st.markdown("<br>", unsafe_allow_html=True)
 
     with st.form("form_movimiento", clear_on_submit=True):
         col_m1, col_m2 = st.columns(2)
         with col_m1:
-            fecha_mov = st.date_input("📅 Fecha del Movimiento", datetime.date.today())
+            fecha_mov = st.date_input("📅 Fecha de Recepción", datetime.date.today())
             tipo_mov = st.selectbox("Tipo de Movimiento", ["Ingreso (+)", "Egreso (-)"])
             responsable_mov = st.text_input("👤 Responsable", placeholder="Ej: Tamara")
         with col_m2:
@@ -501,10 +501,10 @@ with tab_movimientos:
         with col_m4:
             color_mov = st.text_input("Color (Opcional)")
 
-        observacion_mov = st.text_area("Observación / Motivo", placeholder="Ej: Venta presencial o reposición de fábrica")
+        observacion_mov = st.text_area("Observación / Motivo", placeholder="Ej: Ingreso de proveedor o reposición")
         
         st.markdown("<br>", unsafe_allow_html=True)
-        btn_guardar_mov = st.form_submit_button("💾 Registrar Movimiento")
+        btn_guardar_mov = st.form_submit_button("💾 Registrar Recepción")
 
         if btn_guardar_mov:
             if producto_mov in ["Seleccione un producto...", "No hay productos disponibles"]:
@@ -525,13 +525,13 @@ with tab_movimientos:
                 conexion.commit()
                 conexion.close()
 
-                st.success(f"¡Movimiento de {tipo_mov} registrado correctamente para {nombre_p}!")
+                st.success(f"¡Recepción registrada correctamente para {nombre_p}!")
 
     st.markdown("<br><hr><br>", unsafe_allow_html=True)
-    st.markdown("### Historial de Movimientos")
+    st.markdown("### Historial de Recepciones")
     df_movs = cargar_historial_movimientos()
     if df_movs.empty:
-        st.info("No hay movimientos registrados todavía.")
+        st.info("No hay recepciones registradas todavía.")
     else:
         def pintar_tipo(val):
             color = 'green' if 'Ingreso' in str(val) else 'red'
