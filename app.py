@@ -197,24 +197,53 @@ def convertir_df_a_excel(df):
     processed_data = output.getvalue()
     return processed_data
 
-def convertir_df_a_html_impresion(df, titulo_reporte):
+def convertir_df_a_html_impresion(df, titulo_reporte, meta_data=None):
+    meta_html = ""
+    if meta_data:
+        meta_html = f"""
+        <div class="meta-box">
+            <table class="meta-table">
+                <tr>
+                    <td><b>Fecha:</b> {meta_data.get('fecha', '-')}</td>
+                    <td><b>Proveedor:</b> {meta_data.get('proveedor', '-')}</td>
+                </tr>
+                <tr>
+                    <td><b>1) Conteo inicial:</b> {meta_data.get('c1', '-')}</td>
+                    <td><b>2) Control de calidad:</b> {meta_data.get('c2', '-')}</td>
+                </tr>
+                <tr>
+                    <td><b>3) Cotejo con remito:</b> {meta_data.get('c3', '-')}</td>
+                    <td><b>4) Etiquetado SKU:</b> {meta_data.get('c4', '-')}</td>
+                </tr>
+                <tr>
+                    <td colspan="2"><b>5) Ubicación depósito:</b> {meta_data.get('c5', '-')}</td>
+                </tr>
+            </table>
+        </div>
+        """
+
     html = f"""
     <html>
         <head>
             <title>{titulo_reporte}</title>
             <style>
-                body {{ font-family: Arial, sans-serif; margin: 20px; color: #0f172a; }}
-                h2 {{ text-align: center; color: #00b89f; }}
-                table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
-                th, td {{ border: 1px solid #cbd5e1; padding: 8px 12px; text-align: left; font-size: 14px; }}
-                th {{ background-color: #f1f5f9; color: #0f172a; }}
-                tr:nth-child(even) {{ background-color: #f8fafc; }}
+                @page {{ size: portrait; margin: 15mm; }}
+                body {{ font-family: Arial, sans-serif; margin: 0; color: #0f172a; }}
+                h2 {{ text-align: center; color: #00b89f; margin-bottom: 5px; }}
+                .meta-box {{ border: 1px solid #cbd5e1; background-color: #f8fafc; padding: 10px; border-radius: 6px; margin-bottom: 15px; }}
+                .meta-table {{ width: 100%; border-collapse: collapse; }}
+                .meta-table td {{ padding: 4px 8px; font-size: 13px; border: none; }}
+                table.data-table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }}
+                table.data-table th, table.data-table td {{ border: 1px solid #cbd5e1; padding: 6px 10px; text-align: left; font-size: 12px; }}
+                table.data-table th {{ background-color: #f1f5f9; color: #0f172a; }}
+                table.data-table tr:nth-child(even) {{ background-color: #f8fafc; }}
             </style>
         </head>
         <body>
             <h2>GestionTamaraB - {titulo_reporte}</h2>
-            <p><b>Fecha de emisión:</b> {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-            {df.to_html(index=False, classes='table')}
+            <p style="text-align: center; font-size: 12px; color: #64748b;"><b>Emitido:</b> {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+            {meta_html}
+            {df.to_html(index=False, classes='data-table')}
             <script>
                 window.onload = function() {{ window.print(); }}
             </script>
@@ -225,6 +254,9 @@ def convertir_df_a_html_impresion(df, titulo_reporte):
 
 if 'lista_control' not in st.session_state:
     st.session_state.lista_control = []
+
+if 'tabla_recepcion_items' not in st.session_state:
+    st.session_state.tabla_recepcion_items = []
 
 if 'ultimo_movimiento_guardado' not in st.session_state:
     st.session_state.ultimo_movimiento_guardado = []
@@ -524,7 +556,7 @@ with tab_control:
 # ==========================================
 with tab_movimientos:
     st.markdown("### Recepción de Mercadería")
-    st.caption("La planilla comienza vacía. Utilizá el buscador múltiple de abajo para agregar varios productos a la vez, indicando los responsables de cada proceso y adjuntando el remito general.")
+    st.caption("Seleccioná varios productos con el buscador múltiple para añadirlos a la tabla y configurar la cantidad exacta para cada uno de ellos.")
     st.markdown("<br>", unsafe_allow_html=True)
     
     col_mfech, col_mprov = st.columns(2)
@@ -547,77 +579,77 @@ with tab_movimientos:
     with r_col5:
         resp_ubicacion = st.text_input("5) Ubicación depósito", placeholder="Nombre")
 
-    archivo_remito_subido = st.file_uploader("📎 Adjuntar Remito General para Toda la Planilla (Foto o PDF)", type=["png", "jpg", "jpeg", "pdf"], key="remito_masivo_subida")
+    archivo_remito_subido = st.file_uploader("📎 Adjuntar Remito General (Foto o PDF)", type=["png", "jpg", "jpeg", "pdf"], key="remito_masivo_subida")
 
     st.markdown("<br>", unsafe_allow_html=True)
 
     with st.container():
-        st.markdown("#### ➕ Agregar Productos a la Recepción")
-        with st.form("form_agregar_item_recepcion", clear_on_submit=True):
-            
-            if not df_productos.empty:
-                opciones_skus_dict = {f"{row['Descripción']} | SKU: {row['SKU']} | Rubro: {row.get('Rubro', 'N/A')} | Subrubro: {row.get('Subrubro', 'N/A')}": row for _, row in df_productos.iterrows()}
-                lista_opciones_prod = list(opciones_skus_dict.keys())
+        st.markdown("#### ➕ Buscador Múltiple para Agregar a la Planilla")
+        
+        if not df_productos.empty:
+            opciones_skus_dict = {f"{row['Descripción']} | SKU: {row['SKU']} | Rubro: {row.get('Rubro', 'N/A')} | Subrubro: {row.get('Subrubro', 'N/A')}": row for _, row in df_productos.iterrows()}
+            lista_opciones_prod = list(opciones_skus_dict.keys())
+        else:
+            lista_opciones_prod = []
+
+        productos_seleccionados_mult = st.multiselect("Buscador de Productos", lista_opciones_prod, placeholder="Buscá y seleccioná uno o varios productos...")
+
+        if st.button("📥 Añadir seleccionados a la planilla"):
+            if not productos_seleccionados_mult:
+                st.error("Por favor, seleccioná al menos un producto del buscador.")
             else:
-                lista_opciones_prod = []
+                for prod_elegido_form in productos_seleccionados_mult:
+                    datos_prod = opciones_skus_dict[prod_elegido_form]
+                    sku_val = str(datos_prod['SKU'])
+                    desc_val = str(datos_prod['Descripción'])
+                    rubro_val = str(datos_prod.get('Rubro', ''))
+                    subrubro_val = str(datos_prod.get('Subrubro', ''))
 
-            # Buscador con selección múltiple
-            productos_seleccionados_mult = st.multiselect("Buscador de Productos (podés seleccionar varios)", lista_opciones_prod)
-
-            f_col_p1, f_col_p2 = st.columns(2)
-            with f_col_p1:
-                tipo_mov_form = st.selectbox("Tipo de Movimiento", ["Ingreso (+)", "Egreso (-)"])
-            with f_col_p2:
-                cant_form = st.number_input("Cantidad por defecto para los seleccionados", min_value=1, value=1, step=1)
-
-            obs_form = st.text_input("Observación (Opcional)")
-
-            st.markdown("<br>", unsafe_allow_html=True)
-            btn_agregar_a_tabla = st.form_submit_button("➕ Añadir seleccionados a la planilla de recepción")
-
-            if btn_agregar_a_tabla:
-                if not productos_seleccionados_mult:
-                    st.error("Por favor, seleccioná al menos un producto del buscador.")
-                else:
-                    if 'tabla_recepcion_items' not in st.session_state:
-                        st.session_state.tabla_recepcion_items = []
-                    
-                    for prod_elegido_form in productos_seleccionados_mult:
-                        datos_prod = opciones_skus_dict[prod_elegido_form]
-                        sku_val = str(datos_prod['SKU'])
-                        desc_val = str(datos_prod['Descripción'])
-                        rubro_val = str(datos_prod.get('Rubro', ''))
-                        subrubro_val = str(datos_prod.get('Subrubro', ''))
-
-                        nuevo_item = {
+                    # Evitar duplicados exactos si ya está en la lista
+                    ya_existe = any(item['SKU'] == sku_val for item in st.session_state.tabla_recepcion_items)
+                    if not ya_existe:
+                        st.session_state.tabla_recepcion_items.append({
                             "SKU": sku_val,
                             "Producto": desc_val,
                             "Rubro": rubro_val,
                             "Subrubro": subrubro_val,
-                            "Tipo": tipo_mov_form,
-                            "Cantidad": float(cant_form),
-                            "Observación": obs_form
-                        }
-                        st.session_state.tabla_recepcion_items.append(nuevo_item)
-                        
-                    st.success(f"¡{len(productos_seleccionados_mult)} productos agregados a la planilla correctamente!")
+                            "Tipo": "Ingreso (+)",
+                            "Cantidad": 1.0,
+                            "Observación": ""
+                        })
+                st.success("¡Productos añadidos a la planilla abajo!")
+                st.rerun()
 
     st.markdown("<br><hr><br>", unsafe_allow_html=True)
-    st.markdown("#### 📋 Planilla de Recepción Actual")
-
-    if 'tabla_recepcion_items' not in st.session_state:
-        st.session_state.tabla_recepcion_items = []
+    st.markdown("#### 📋 Planilla de Recepción (Editá cantidad y tipo por cada producto)")
 
     if not st.session_state.tabla_recepcion_items:
-        st.info("ℹ️ La planilla está vacía. Utilizá el buscador múltiple de arriba para agregar los productos que ingresan.")
-        df_mostrar_recepcion = pd.DataFrame(columns=["SKU", "Producto", "Rubro", "Subrubro", "Tipo", "Cantidad", "Observación"])
-        st.dataframe(df_mostrar_recepcion, width='stretch', hide_index=True)
+        st.info("ℹ️ La planilla está vacía. Utilizá el buscador múltiple de arriba para incorporar mercadería.")
     else:
-        df_mostrar_recepcion = pd.DataFrame(st.session_state.tabla_recepcion_items)
-        st.dataframe(df_mostrar_recepcion, width='stretch', hide_index=True)
+        # Convertimos la lista de sesión en un DataFrame para editar de forma interactiva con st.data_editor
+        df_editable = pd.DataFrame(st.session_state.tabla_recepcion_items)
+        
+        df_editado_resultado = st.data_editor(
+            df_editable,
+            column_config={
+                "SKU": st.column_config.TextColumn("SKU", disabled=True),
+                "Producto": st.column_config.TextColumn("Producto", disabled=True),
+                "Rubro": st.column_config.TextColumn("Rubro", disabled=True),
+                "Subrubro": st.column_config.TextColumn("Subrubro", disabled=True),
+                "Tipo": st.column_config.SelectboxColumn("Tipo", options=["Ingreso (+)", "Egreso (-)"], required=True),
+                "Cantidad": st.column_config.NumberColumn("Cantidad", min_value=1, step=1, required=True),
+                "Observación": st.column_config.TextColumn("Observación")
+            },
+            hide_index=True,
+            width='stretch',
+            key="editor_recepcion_tabla"
+        )
+        
+        # Actualizamos la sesión con los cambios hechos en el editor
+        st.session_state.tabla_recepcion_items = df_editado_resultado.to_dict(orient="records")
 
         st.markdown("<br>", unsafe_allow_html=True)
-        excel_bytes_rec = convertir_df_a_excel(df_mostrar_recepcion)
+        excel_bytes_rec = convertir_df_a_excel(df_editado_resultado)
         st.download_button(
             label="📥 Descargar Planilla de Recepción en Excel (.xlsx)",
             data=excel_bytes_rec,
@@ -706,7 +738,7 @@ with tab_movimientos:
 # ==========================================
 with tab_historial:
     st.markdown("### Historial y Auditorías Separadas por Tandas")
-    st.caption("Seleccioná una tanda específica o todas las planillas, y descargalas en Excel o en formato listo para imprimir (PDF/Ventana de impresión).")
+    st.caption("Seleccioná una tanda específica o todas las planillas, y descargalas en Excel o en formato listo para imprimir en hoja vertical con su cuadro de cabecera.")
     st.markdown("<br>", unsafe_allow_html=True)
     
     tipo_historial_seleccionado = st.radio("Seleccioná el tipo de historial a visualizar:", ["Control de Stock", "Recepción / Movimientos de Mercadería"], horizontal=True)
@@ -727,9 +759,18 @@ with tab_historial:
             if filtro_tanda_fisica == "Todas las tandas (Historial Completo)":
                 df_hist_mostrar = df_historial
                 titulo_doc = "Historial_Completo_Control_Stock"
+                meta_info = None
             else:
                 df_hist_mostrar = df_historial[df_historial['Tanda_Label'] == filtro_tanda_fisica]
                 titulo_doc = f"Control_Stock_{filtro_tanda_fisica.replace(' | ', '_').replace(':', '')}"
+                # Extraemos metadatos para el cuadro superior en PDF
+                fila_meta = df_hist_mostrar.iloc[0] if not df_hist_mostrar.empty else None
+                meta_info = {
+                    "fecha": f"{fila_meta['Fecha']} ({fila_meta['Hora']})",
+                    "proveedor": "Control Físico Interno",
+                    "c1": fila_meta['Responsable'],
+                    "c2": "-", "c3": "-", "c4": "-", "c5": "-"
+                } if fila_meta is not None else None
 
             def pintar_historial(val):
                 if pd.isna(val): return ''
@@ -752,9 +793,9 @@ with tab_historial:
                     key="download_excel_hist_fisico"
                 )
             with col_exp2:
-                html_impresion_f = convertir_df_a_html_impresion(df_final_hist_fisico, f"Control de Stock - {filtro_tanda_fisica}")
+                html_impresion_f = convertir_df_a_html_impresion(df_final_hist_fisico, f"Control de Stock - {filtro_tanda_fisica}", meta_info)
                 st.download_button(
-                    label="🖨️ Descargar / Imprimir Reporte en PDF (HTML)",
+                    label="🖨️ Descargar / Imprimir Reporte en PDF (Hoja Vertical)",
                     data=html_impresion_f,
                     file_name=f"{titulo_doc}.html",
                     mime="text/html",
@@ -828,11 +869,27 @@ with tab_historial:
             if filtro_mov_tanda == "Todas las recepciones (Historial Completo)":
                 df_mov_mostrar = df_mov
                 titulo_doc_m = "Historial_Completo_Recepciones"
+                meta_info_m = None
             else:
                 df_mov_mostrar = df_mov[df_mov['Mov_Label'] == filtro_mov_tanda]
                 titulo_doc_m = f"Recepcion_{filtro_mov_tanda.replace(' | ', '_').replace(':', '')}"
+                
+                # Extraemos metadatos limpios para la cabecera superior del PDF
+                fila_meta_m = df_mov_mostrar.iloc[0] if not df_mov_mostrar.empty else None
+                meta_info_m = {
+                    "fecha": f"{fila_meta_m['Fecha']} ({fila_meta_m['Hora']})",
+                    "proveedor": fila_meta_m['Proveedor'],
+                    "c1": fila_meta_m['Conteo Inicial'],
+                    "c2": fila_meta_m['Control de Calidad'],
+                    "c3": fila_meta_m['Cotejo Remito'],
+                    "c4": fila_meta_m['Etiquetado SKU'],
+                    "c5": fila_meta_m['Ubicación Depósito']
+                } if fila_meta_m is not None else None
 
-            df_final_hist_mov = df_mov_mostrar.drop(columns=["ID", "Mov_Label"])
+            # Ocultamos las columnas repetitivas de responsables en la tabla central para que quede limpia
+            columnas_a_quitar = ["ID", "Mov_Label", "Conteo Inicial", "Control de Calidad", "Cotejo Remito", "Etiquetado SKU", "Ubicación Depósito"]
+            df_final_hist_mov = df_mov_mostrar.drop(columns=[c for c in columnas_a_quitar if c in df_mov_mostrar.columns])
+            
             st.dataframe(df_final_hist_mov, width='stretch', hide_index=True)
 
             st.markdown("<br>", unsafe_allow_html=True)
@@ -848,9 +905,9 @@ with tab_historial:
                     key="download_excel_hist_mov"
                 )
             with col_mexp2:
-                html_impresion_m = convertir_df_a_html_impresion(df_final_hist_mov, f"Recepción de Mercadería - {filtro_mov_tanda}")
+                html_impresion_m = convertir_df_a_html_impresion(df_final_hist_mov, f"Recepción de Mercadería - {filtro_mov_tanda}", meta_info_m)
                 st.download_button(
-                    label="🖨️ Descargar / Imprimir Reporte en PDF (HTML)",
+                    label="🖨️ Descargar / Imprimir Reporte en PDF (Hoja Vertical)",
                     data=html_impresion_m,
                     file_name=f"{titulo_doc_m}.html",
                     mime="text/html",
