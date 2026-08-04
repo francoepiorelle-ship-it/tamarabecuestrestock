@@ -151,9 +151,6 @@ def cargar_historial_movimientos():
 if 'lista_control' not in st.session_state:
     st.session_state.lista_control = []
 
-if 'lista_recepcion' not in st.session_state:
-    st.session_state.lista_recepcion = []
-
 if 'ultimo_movimiento_guardado' not in st.session_state:
     st.session_state.ultimo_movimiento_guardado = []
 
@@ -439,62 +436,91 @@ with tab_control:
                 st.rerun()
 
 # ==========================================
-# 3. SOLAPA: RECEPCIÓN DE MERCADERÍA (CON CARGA DE REMITO Y EXCEL DE ETIQUETAS)
+# 3. SOLAPA: RECEPCIÓN DE MERCADERÍA (CARGA MASIVA TODO EN UNO)
 # ==========================================
 with tab_movimientos:
-    st.markdown("### Recepción de Mercadería")
-    st.caption("Podes registrar recepciones, adjuntar el remito y al finalizar generar automáticamente el archivo CSV delimitado para tus etiquetas.")
+    st.markdown("### Recepción de Mercadería (Carga Masiva)")
+    st.caption("Cargá todos los productos que vienen en esta recepción en una sola tabla, adjuntá el remito y guardá todo de un solo golpe.")
     st.markdown("<br>", unsafe_allow_html=True)
     
-    col_mfech, col_mresp = st.columns(2)
+    col_mfech, col_mresp, col_mprov = st.columns(3)
     with col_mfech:
         fecha_recepcion_dia = st.date_input("📅 Fecha de Recepción", datetime.date.today(), key="f_rec_dia")
     with col_mresp:
-        responsable_recepcion = st.text_input("👤 Responsable de la Recepción", placeholder="Ej: Tamara", key="resp_rec_dia")
+        responsable_recepcion = st.text_input("👤 Responsable", placeholder="Ej: Tamara", key="resp_rec_dia")
+    with col_mprov:
+        lista_prov_form = sorted(df_productos['Proveedor'].dropna().unique().tolist()) if 'Proveedor' in df_productos.columns else ["General"]
+        proveedor_recepcion_global = st.selectbox("📦 Proveedor de la Recepción", ["General"] + lista_prov_form, key="prov_rec_global")
 
-    lista_prov_form = sorted(df_productos['Proveedor'].dropna().unique().tolist()) if 'Proveedor' in df_productos.columns else ["General"]
-    proveedor_seleccionado_form = st.selectbox("Filtrar por Proveedor (opcional):", ["Todos"] + lista_prov_form, key="prov_rec_filtro")
-
-    if not df_productos.empty:
-        df_prod_form = df_productos.copy()
-        if proveedor_seleccionado_form != "Todos":
-            df_prod_form = df_prod_form[df_prod_form['Proveedor'] == proveedor_seleccionado_form]
-        
-        opciones_mov = df_prod_form.apply(lambda x: f"{x['Descripción']} | SKU: {x['SKU']} | Prov: {x.get('Proveedor', 'N/A')}", axis=1).tolist()
-        opciones_mov.insert(0, "Seleccione un producto...")
-    else:
-        opciones_mov = ["No hay productos disponibles"]
+    archivo_remito_subido = st.file_uploader("📎 Adjuntar Remito General (Foto o PDF)", type=["png", "jpg", "jpeg", "pdf"], key="remito_masivo_subida")
 
     st.markdown("<br>", unsafe_allow_html=True)
-    with st.container():
-        st.markdown("#### ➕ Agregar Producto a la Tanda de Recepción")
-        with st.form("form_recepcion_dia", clear_on_submit=True):
-            col_d1, col_d2, col_d3, col_d4, col_d5 = st.columns([2.5, 1, 1, 1, 1])
-            with col_d1:
-                producto_mov = st.selectbox("Producto", opciones_mov)
-            with col_d2:
-                tipo_mov = st.selectbox("Tipo", ["Ingreso (+)", "Egreso (-)"])
-            with col_d3:
-                cantidad_mov = st.number_input("Cantidad", min_value=1, step=1, value=1)
-            with col_d4:
-                talle_mov = st.text_input("Talle")
-            with col_d5:
-                color_mov = st.text_input("Color")
-            
-            observacion_mov = st.text_input("Observación / Motivo", placeholder="Ej: Compra a proveedor / Remito X")
-            archivo_remito_subido = st.file_uploader("📎 Adjuntar Remito (Foto o PDF)", type=["png", "jpg", "jpeg", "pdf"])
-            
-            st.markdown("<br>", unsafe_allow_html=True)
-            agregar_rec_btn = st.form_submit_button("Agregar a la tanda de recepción")
-            
-            if agregar_rec_btn and producto_mov not in ["Seleccione un producto...", "No hay productos disponibles"]:
-                partes = producto_mov.split(" | SKU: ")
-                nombre_p = partes[0]
-                sku_p = partes[1].split(" | Prov: ")[0] if len(partes) > 1 else "Sin SKU"
-                
-                prod_match = df_productos[df_productos['SKU'].astype(str) == str(sku_p).strip()]
-                prov_p = prod_match.iloc[0]['Proveedor'] if not prod_match.empty and 'Proveedor' in prod_match.columns else "General"
+    st.markdown("#### 📝 Detalle de Artículos Recibidos")
+    st.caption("Agregá filas abajo de todo, buscá tu producto o completá la cantidad, talle y color de cada ítem que vino en el remito.")
 
+    # Preparamos una plantilla vacía o recuperamos si ya estaba en session_state
+    if 'df_recepcion_masiva' not in st.session_state:
+        st.session_state.df_recepcion_masiva = pd.DataFrame(columns=[
+            "Seleccionar", "SKU", "Producto", "Tipo", "Cantidad", "Talle", "Color", "Observación"
+        ])
+
+    # Si la tabla está vacía, le damos filas iniciales vacías para que sea fácil editar
+    if st.session_state.df_recepcion_masiva.empty and not df_productos.empty:
+        filas_iniciales = []
+        for _, prod in df_productos.head(5).iterrows():
+            filas_iniciales.append({
+                "Seleccionar": False,
+                "SKU": str(prod["SKU"]),
+                "Producto": prod["Descripción"],
+                "Tipo": "Ingreso (+)",
+                "Cantidad": 1.0,
+                "Talle": "",
+                "Color": "",
+                "Observación": ""
+            })
+        st.session_state.df_recepcion_masiva = pd.DataFrame(filas_iniciales)
+
+    # Creamos un editor interactivo donde la usuaria puede agregar filas o tildar productos
+    opciones_skus_dict = {}
+    if not df_productos.empty:
+        opciones_skus_dict = {f"{row['Descripción']} (SKU: {row['SKU']})": row['SKU'] for _, row in df_productos.iterrows()}
+
+    # Editor de tabla optimizado
+    df_editado = st.data_editor(
+        st.session_state.df_recepcion_masiva,
+        num_rows="dynamic",
+        column_config={
+            "Seleccionar": st.column_config.CheckboxColumn("¿Incluir?", default=True),
+            "Tipo": st.column_config.SelectboxColumn("Tipo", options=["Ingreso (+)", "Egreso (-)"], required=True),
+            "Cantidad": st.column_config.NumberColumn("Cantidad", min_value=1, step=1, format="%d"),
+        },
+        use_container_width=True,
+        key="editor_recepcion_masiva"
+    )
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    
+    col_btn1, col_btn2 = st.columns([2, 1])
+    with col_btn1:
+        guardar_recepcion_masiva_btn = st.button("💾 Guardar Recepción Completa en el Historial")
+    with col_btn2:
+        if st.button("🧹 Limpiar Tabla Actual"):
+            st.session_state.df_recepcion_masiva = pd.DataFrame(columns=[
+                "Seleccionar", "SKU", "Producto", "Tipo", "Cantidad", "Talle", "Color", "Observación"
+            ])
+            st.rerun()
+
+    if guardar_recepcion_masiva_btn:
+        if not responsable_recepcion:
+            st.error("Por favor, ingresá el nombre del responsable antes de guardar.")
+        else:
+            # Filtramos solo los elementos que estén tildados (Seleccionar == True)
+            df_a_guardar = df_editado[df_editado["Seleccionar"] == True].copy()
+            
+            if df_a_guardar.empty:
+                st.warning("⚠️ No hay ningún producto seleccionado para guardar en esta recepción.")
+            else:
+                # Guardamos el archivo del remito si existe
                 ruta_guardada = ""
                 if archivo_remito_subido is not None:
                     timestamp_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -504,100 +530,60 @@ with tab_movimientos:
                         f.write(archivo_remito_subido.getbuffer())
                     ruta_guardada = str(ruta_completa)
 
-                st.session_state.lista_recepcion.append({
-                    "Tipo": tipo_mov,
-                    "SKU": sku_p,
-                    "Producto": nombre_p,
-                    "Proveedor": prov_p,
-                    "Talle": talle_mov,
-                    "Color": color_mov,
-                    "Cantidad": float(cantidad_mov),
-                    "Observación": observacion_mov,
-                    "Remito_Archivo": ruta_guardada
-                })
-                st.success(f"¡Agregado a la tanda! ({nombre_p})")
-
-    if st.session_state.lista_recepcion:
-        st.markdown("<br><hr><br>", unsafe_allow_html=True)
-        st.markdown(f"### 📋 Tanda Actual de Recepción ({fecha_recepcion_dia})")
-        
-        df_rec_mostrar_preview = pd.DataFrame(st.session_state.lista_recepcion).copy()
-        if "Remito_Archivo" in df_rec_mostrar_preview.columns:
-            df_rec_mostrar_preview["Tiene Remito"] = df_rec_mostrar_preview["Remito_Archivo"].apply(lambda x: "Sí 📎" if x else "No")
-            df_rec_mostrar_preview = df_rec_mostrar_preview.drop(columns=["Remito_Archivo"])
-        
-        def pintar_tipo_sesion(val):
-            color = 'green' if 'Ingreso' in str(val) else 'red'
-            return f'color: {color}; font-weight: bold;'
-        
-        st.dataframe(df_rec_mostrar_preview.style.map(pintar_tipo_sesion, subset=['Tipo']), width='stretch')
-        
-        with st.expander("⚙️ Opciones de edición y corrección de la tanda actual"):
-            col_err1, col_err2, col_err3 = st.columns([2, 1, 1])
-            with col_err1:
-                opciones_borrar_rec = [f"{i} - {item['Producto']} (Cant: {item['Cantidad']})" for i, item in enumerate(st.session_state.lista_recepcion)]
-                item_rec_a_borrar = st.selectbox("Elegí cuál borrar:", opciones_borrar_rec, label_visibility="collapsed")
-            with col_err2:
-                if st.button("❌ Borrar ítem"):
-                    if item_rec_a_borrar:
-                        indice = int(item_rec_a_borrar.split(" - ")[0])
-                        st.session_state.lista_recepcion.pop(indice)
-                        st.rerun()
-            with col_err3:
-                if st.button("🧹 Vaciar tanda"):
-                    st.session_state.lista_recepcion = []
-                    st.rerun()
-                
-        st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("💾 Guardar Tanda de Recepción en el Historial"):
-            if not responsable_recepcion:
-                st.error("Por favor, ingresá el nombre del responsable antes de guardar.")
-            else:
                 hora_arg = datetime.datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).strftime("%H:%M:%S")
                 conexion = sqlite3.connect(DB_PATH)
                 cursor = conexion.cursor()
                 
-                # Guardamos copia temporal en session_state para poder generar el archivo de etiquetas inmediatamente
-                st.session_state.ultimo_movimiento_guardado = list(st.session_state.lista_recepcion)
+                lista_para_etiquetas = []
 
-                for item in st.session_state.lista_recepcion:
+                for _, row in df_a_guardar.iterrows():
+                    sku_val = str(row["SKU"]) if pd.notna(row["SKU"]) else "Sin SKU"
+                    prod_val = str(row["Producto"]) if pd.notna(row["Producto"]) else "Sin Descripción"
+                    tipo_val = str(row["Tipo"])
+                    cant_val = float(row["Cantidad"]) if pd.notna(row["Cantidad"]) else 1.0
+                    talle_val = str(row["Talle"]) if pd.notna(row["Talle"]) else ""
+                    color_val = str(row["Color"]) if pd.notna(row["Color"]) else ""
+                    obs_val = str(row["Observación"]) if pd.notna(row["Observación"]) else ""
+
                     cursor.execute("""
                         INSERT INTO movimientos_stock (fecha, hora, tipo, sku, producto, proveedor, talle, color, cantidad, responsable, observacion, remito_archivo)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (str(fecha_recepcion_dia), hora_arg, item['Tipo'], item['SKU'], item['Producto'], item['Proveedor'], item['Talle'], item['Color'], item['Cantidad'], responsable_recepcion, item['Observación'], item['Remito_Archivo']))
+                    """, (str(fecha_recepcion_dia), hora_arg, tipo_val, sku_val, prod_val, proveedor_recepcion_global, talle_val, color_val, cant_val, responsable_recepcion, obs_val, ruta_guardada))
+
+                    if "Ingreso" in tipo_val:
+                        lista_para_etiquetas.append({
+                            "Producto": prod_val,
+                            "SKU": sku_val,
+                            "Cantidad": cant_val
+                        })
+
                 conexion.commit()
                 conexion.close()
-                
-                st.session_state.lista_recepcion = []
-                st.success(f"¡Tanda de recepción guardada exitosamente a las {hora_arg}!")
-                st.rerun()
 
-    # --- GENERAR ARCHIVO CSV PARA ETIQUETAS (BASADO EN LA ÚLTIMA TANDA GUARDADA) ---
+                # Guardamos para generar el archivo de etiquetas inmediatamente abajo
+                st.session_state.ultimo_movimiento_guardado = lista_para_etiquetas
+                st.success(f"¡Recepción completa guardada exitosamente a las {hora_arg}! Se registraron {len(df_a_guardar)} ítems juntos.")
+
+    # --- GENERAR ARCHIVO CSV PARA ETIQUETAS (BASADO EN LA ÚLTIMA RECEPCIÓN GUARDADA) ---
     if st.session_state.ultimo_movimiento_guardado:
         st.markdown("<br><hr><br>", unsafe_allow_html=True)
-        st.markdown("### 🏷️ Generar Archivo CSV para Etiquetas")
+        st.markdown("### 🏷️ Generar Archivo CSV para Etiquetas de esta Recepción")
         st.caption("Podes descargar el archivo con formato exacto (delimitado con comillas) listo para tu impresora de etiquetas.")
         
-        # Opción para definir cuántas etiquetas imprimir por cada producto recibido
-        tipo_cant_etiquetas = st.radio("Cantidad de etiquetas por producto:", ["Imprimir 1 etiqueta por ítem", "Imprimir tantas etiquetas como la cantidad recibida"], horizontal=True)
+        tipo_cant_etiquetas = st.radio("Cantidad de etiquetas por producto:", ["Imprimir 1 etiqueta por ítem", "Imprimir tantas etiquetas como la cantidad recibida"], horizontal=True, key="radio_etiquetas_masivo")
         
         filas_etiquetas = []
         for item in st.session_state.ultimo_movimiento_guardado:
-            # Solo generamos etiquetas para los ingresos
-            if "Ingreso" in item["Tipo"]:
-                repeticiones = int(item["Cantidad"]) if tipo_cant_etiquetas == "Imprimir tantas etiquetas como la cantidad recibida" else 1
-                for _ in range(repeticiones):
-                    filas_etiquetas.append({
-                        "Producto": item["Producto"],
-                        "SKU": str(int(float(item["SKU"]))) if str(item["SKU"]).replace('.','',1).isdigit() else str(item["SKU"])
-                    })
+            repeticiones = int(item["Cantidad"]) if tipo_cant_etiquetas == "Imprimir tantas etiquetas como la cantidad recibida" else 1
+            for _ in range(repeticiones):
+                filas_etiquetas.append({
+                    "Producto": item["Producto"],
+                    "SKU": str(int(float(item["SKU"]))) if str(item["SKU"]).replace('.','',1).isdigit() else str(item["SKU"])
+                })
         
         if filas_etiquetas:
             df_etiquetas = pd.DataFrame(filas_etiquetas)
-            
-            # Convertimos a CSV usando quoting=1 (QUOTE_ALL o QUOTE_NONNUMERIC según requerimiento estricto, 
-            # pero para que quede exactamente como en tu foto: "PRODUCTO","SKU" utilizamos QUOTE_ALL o personalizamos)
-            csv_buffer = df_etiquetas.to_csv(index=False, header=False, encoding="utf-8-sig", quoting=1) # QUOTE_ALL encierra todo entre comillas
+            csv_buffer = df_etiquetas.to_csv(index=False, header=False, encoding="utf-8-sig", quoting=1)
             
             timestamp_etiq = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
             nombre_csv_etiquetas = f"etiquetas_{timestamp_etiq}.csv"
@@ -606,10 +592,9 @@ with tab_movimientos:
                 label="📥 Descargar CSV para Etiquetas",
                 data=csv_buffer,
                 file_name=nombre_csv_etiquetas,
-                mime="text/csv"
+                mime="text/csv",
+                key="btn_descarga_csv_masivo"
             )
-        else:
-            st.info("No hay ingresos registrados en la última tanda para generar etiquetas.")
 
 # ==========================================
 # 4. SOLAPA: HISTORIAL Y AUDITORÍAS
