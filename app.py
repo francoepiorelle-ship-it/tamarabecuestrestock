@@ -30,6 +30,8 @@ def asegurar_base_datos():
             SKU TEXT UNIQUE,
             Descripción TEXT,
             Proveedor TEXT,
+            Rubro TEXT,
+            Subrubro TEXT,
             Stock REAL,
             "Stock Reservado" REAL,
             "Stock Disponible" REAL,
@@ -76,6 +78,14 @@ def asegurar_base_datos():
     if "remito_archivo" not in columnas:
         cursor.execute("ALTER TABLE movimientos_stock ADD COLUMN remito_archivo TEXT")
         
+    # Verificar columnas en productos por si ya existía la tabla previa
+    cursor.execute("PRAGMA table_info(productos)")
+    cols_prod = [col[1] for col in cursor.fetchall()]
+    if "Rubro" not in cols_prod:
+        cursor.execute("ALTER TABLE productos ADD COLUMN Rubro TEXT")
+    if "Subrubro" not in cols_prod:
+        cursor.execute("ALTER TABLE productos ADD COLUMN Subrubro TEXT")
+        
     conexion.commit()
     conexion.close()
 
@@ -91,8 +101,12 @@ def sincronizar_excel_automatico():
                 
                 if "Proveedor" not in df_filtrado.columns:
                     df_filtrado["Proveedor"] = "General"
+                if "Rubro" not in df_filtrado.columns:
+                    df_filtrado["Rubro"] = "General"
+                if "Subrubro" not in df_filtrado.columns:
+                    df_filtrado["Subrubro"] = "General"
                 
-                cols_finales = ["SKU", "Nombre", "Proveedor", "Stock", "Stock Reservado"]
+                cols_finales = ["SKU", "Nombre", "Proveedor", "Rubro", "Subrubro", "Stock", "Stock Reservado"]
                 df_filtrado = df_filtrado[[c for c in cols_finales if c in df_filtrado.columns]].copy()
                 
                 for col in ["Stock", "Stock Reservado"]:
@@ -125,9 +139,9 @@ def cargar_datos():
     asegurar_base_datos()
     conexion = sqlite3.connect(DB_PATH)
     try:
-        df = pd.read_sql("SELECT SKU, Descripción, Proveedor, Stock, \"Stock Reservado\", \"Stock Disponible\", \"Última Actualización\" FROM productos", conexion)
+        df = pd.read_sql("SELECT SKU, Descripción, Proveedor, Rubro, Subrubro, Stock, \"Stock Reservado\", \"Stock Disponible\", \"Última Actualización\" FROM productos", conexion)
     except Exception:
-        df = pd.DataFrame(columns=["SKU", "Descripción", "Proveedor", "Stock", "Stock Reservado", "Stock Disponible", "Última Actualización"])
+        df = pd.DataFrame(columns=["SKU", "Descripción", "Proveedor", "Rubro", "Subrubro", "Stock", "Stock Reservado", "Stock Disponible", "Última Actualización"])
     conexion.close()
     return df
 
@@ -346,12 +360,15 @@ with tab_dash:
         st.markdown("<br><br>", unsafe_allow_html=True)
         
         with st.expander("🔍 Ventana de Búsqueda y Filtros Avanzados"):
-            f_col1, f_col2 = st.columns(2)
+            f_col1, f_col2, f_col3 = st.columns(3)
             with f_col1:
                 busqueda = st.text_input("Filtrar por SKU o Descripción:", placeholder="Escribí aquí para buscar...")
             with f_col2:
                 proveedores_disponibles = ["Todos"] + sorted(df_productos['Proveedor'].dropna().unique().tolist()) if 'Proveedor' in df_productos.columns else ["Todos"]
                 filtro_proveedor_dash = st.selectbox("Filtrar por Proveedor:", proveedores_disponibles)
+            with f_col3:
+                rubros_disponibles = ["Todos"] + sorted(df_productos['Rubro'].dropna().unique().tolist()) if 'Rubro' in df_productos.columns else ["Todos"]
+                filtro_rubro_dash = st.selectbox("Filtrar por Rubro:", rubros_disponibles)
 
         df_filtrado = df_productos.copy()
         if 'busqueda' in locals() and busqueda:
@@ -361,6 +378,8 @@ with tab_dash:
             ]
         if 'filtro_proveedor_dash' in locals() and filtro_proveedor_dash != "Todos":
             df_filtrado = df_filtrado[df_filtrado['Proveedor'] == filtro_proveedor_dash]
+        if 'filtro_rubro_dash' in locals() and filtro_rubro_dash != "Todos":
+            df_filtrado = df_filtrado[df_filtrado['Rubro'] == filtro_rubro_dash]
 
         st.markdown("<br>", unsafe_allow_html=True)
         st.dataframe(df_filtrado, width='stretch', hide_index=True)
@@ -380,7 +399,7 @@ with tab_control:
         responsable = st.text_input("👤 Responsable del Conteo", placeholder="Ej: Tamara", key="resp_ctrl_dia")
 
     if not df_productos.empty:
-        opciones_buscador = df_productos.apply(lambda x: f"{x['Descripción']} | SKU: {x['SKU']} | Prov: {x.get('Proveedor', 'N/A')}", axis=1).tolist()
+        opciones_buscador = df_productos.apply(lambda x: f"{x['Descripción']} | SKU: {x['SKU']} | Rubro: {x.get('Rubro', 'N/A')} | Prov: {x.get('Proveedor', 'N/A')}", axis=1).tolist()
         opciones_buscador.insert(0, "Seleccione un producto...")
     else:
         opciones_buscador = ["No hay productos disponibles"]
@@ -405,7 +424,7 @@ with tab_control:
             if agregar_btn and producto_seleccionado != "Seleccione un producto..." and producto_seleccionado != "No hay productos disponibles":
                 partes = producto_seleccionado.split(" | SKU: ")
                 nombre_prod = partes[0]
-                sku_extraido = partes[1].split(" | Prov: ")[0] if len(partes) > 1 else "Sin SKU"
+                sku_extraido = partes[1].split(" | Rubro: ")[0] if len(partes) > 1 else "Sin SKU"
                 
                 prod_info = df_productos[df_productos['SKU'].astype(str) == str(sku_extraido).strip()]
                 stock_sis = prod_info.iloc[0]['Stock'] if not prod_info.empty else 0.0
@@ -484,7 +503,7 @@ with tab_control:
 # ==========================================
 with tab_movimientos:
     st.markdown("### Recepción de Mercadería")
-    st.caption("La planilla comienza vacía. Utiliza el formulario externo de abajo para ir agregando los productos de la recepción uno a uno, y adjunta un único remito para toda la planilla.")
+    st.caption("La planilla incluye el Rubro y Subrubro de cada producto. Utiliza el formulario de abajo para ir agregándolos uno a uno y adjunta un único remito para toda la planilla.")
     st.markdown("<br>", unsafe_allow_html=True)
     
     col_mfech, col_mresp, col_mprov = st.columns(3)
@@ -505,7 +524,7 @@ with tab_movimientos:
         with st.form("form_agregar_item_recepcion", clear_on_submit=True):
             
             if not df_productos.empty:
-                opciones_skus_dict = {f"{row['Descripción']} (SKU: {row['SKU']})": row for _, row in df_productos.iterrows()}
+                opciones_skus_dict = {f"{row['Descripción']} (SKU: {row['SKU']} | Rubro: {row.get('Rubro', 'N/A')})": row for _, row in df_productos.iterrows()}
                 lista_opciones_prod = ["Seleccione un producto..."] + list(opciones_skus_dict.keys())
             else:
                 lista_opciones_prod = ["No hay productos disponibles"]
@@ -536,10 +555,14 @@ with tab_movimientos:
                     datos_prod = opciones_skus_dict[prod_elegido_form]
                     sku_val = str(datos_prod['SKU'])
                     desc_val = str(datos_prod['Descripción'])
+                    rubro_val = str(datos_prod.get('Rubro', ''))
+                    subrubro_val = str(datos_prod.get('Subrubro', ''))
 
                     nuevo_item = {
                         "SKU": sku_val,
                         "Producto": desc_val,
+                        "Rubro": rubro_val,
+                        "Subrubro": subrubro_val,
                         "Tipo": tipo_mov_form,
                         "Cantidad": float(cant_form),
                         "Talle": talle_form,
@@ -561,7 +584,7 @@ with tab_movimientos:
 
     if not st.session_state.tabla_recepcion_items:
         st.info("ℹ️ La planilla está vacía. Utiliza el formulario de arriba para agregar los productos que ingresan.")
-        df_mostrar_recepcion = pd.DataFrame(columns=["SKU", "Producto", "Tipo", "Cantidad", "Talle", "Color", "Observación"])
+        df_mostrar_recepcion = pd.DataFrame(columns=["SKU", "Producto", "Rubro", "Subrubro", "Tipo", "Cantidad", "Talle", "Color", "Observación"])
         st.dataframe(df_mostrar_recepcion, width='stretch', hide_index=True)
     else:
         df_mostrar_recepcion = pd.DataFrame(st.session_state.tabla_recepcion_items)
@@ -695,7 +718,6 @@ with tab_historial:
             
             st.markdown("<br>", unsafe_allow_html=True)
             
-            # Botones de exportación (Excel y PDF / Impresión)
             col_exp1, col_exp2 = st.columns(2)
             with col_exp1:
                 excel_bytes_hist_f = convertir_df_a_excel(df_final_hist_fisico)
@@ -792,7 +814,6 @@ with tab_historial:
 
             st.markdown("<br>", unsafe_allow_html=True)
             
-            # Botones de exportación (Excel y PDF / Impresión)
             col_mexp1, col_mexp2 = st.columns(2)
             with col_mexp1:
                 excel_bytes_hist_m = convertir_df_a_excel(df_final_hist_mov)
