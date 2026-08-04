@@ -140,7 +140,7 @@ def cargar_datos():
     asegurar_base_datos()
     conexion = sqlite3.connect(DB_PATH)
     try:
-        df = pd.read_sql("SELECT SKU, Descripción, Rubro, Subrubro, Proveedor, Stock, \"Stock Reservado\", \"Stock Disponible\", \"Última Actualización\" FROM productos", conexion)
+        df = pd.read_sql('SELECT SKU, Descripción, Rubro, Subrubro, Proveedor, Stock, "Stock Reservado", "Stock Disponible", "Última Actualización" FROM productos', conexion)
     except Exception:
         df = pd.DataFrame(columns=["SKU", "Descripción", "Rubro", "Subrubro", "Proveedor", "Stock", "Stock Reservado", "Stock Disponible", "Última Actualización"])
     conexion.close()
