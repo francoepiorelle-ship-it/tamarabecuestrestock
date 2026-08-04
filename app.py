@@ -45,6 +45,21 @@ def asegurar_base_datos():
             fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS movimientos_stock (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            fecha TEXT,
+            tipo TEXT,
+            sku TEXT,
+            producto TEXT,
+            talle TEXT,
+            color TEXT,
+            cantidad REAL,
+            responsable TEXT,
+            observacion TEXT,
+            fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
     conexion.commit()
     conexion.close()
 
@@ -100,6 +115,15 @@ def cargar_historial():
         df = pd.read_sql("SELECT id AS ID, fecha AS Fecha, responsable AS Responsable, sku AS SKU, producto AS Producto, talle AS Talle, color AS Color, stock_fisico AS 'Stock Físico', stock_sistema AS 'Stock Sistema', diferencia AS Diferencia FROM controles_fisicos ORDER BY fecha DESC, id DESC", conexion)
     except Exception:
         df = pd.DataFrame(columns=["ID", "Fecha", "Responsable", "SKU", "Producto", "Talle", "Color", "Stock Físico", "Stock Sistema", "Diferencia"])
+    conexion.close()
+    return df
+
+def cargar_historial_movimientos():
+    conexion = sqlite3.connect(DB_PATH)
+    try:
+        df = pd.read_sql("SELECT id AS ID, fecha AS Fecha, tipo AS Tipo, sku AS SKU, producto AS Producto, talle AS Talle, color AS Color, cantidad AS Cantidad, responsable AS Responsable, observacion AS Observación FROM movimientos_stock ORDER BY fecha DESC, id DESC", conexion)
+    except Exception:
+        df = pd.DataFrame(columns=["ID", "Fecha", "Tipo", "SKU", "Producto", "Talle", "Color", "Cantidad", "Responsable", "Observación"])
     conexion.close()
     return df
 
@@ -235,7 +259,7 @@ with col_head2:
 
 st.markdown("<br>", unsafe_allow_html=True)
 
-tab_dash, tab_control, tab_historial = st.tabs(["📊 Dashboard General", "📋 Control Físico por Día", "📂 Historial de Auditorías"])
+tab_dash, tab_control, tab_historial, tab_movimientos = st.tabs(["📊 Dashboard General", "📋 Control Físico por Día", "📂 Historial de Auditorías", "🔄 Ingresos / Egreso Stock"])
 
 # ==========================================
 # 1. SOLAPA: DASHBOARD GENERAL
@@ -446,3 +470,70 @@ with tab_historial:
                             
                             st.success(f"¡Todos los registros del día {fecha_a_borrar} fueron eliminados exitosamente!")
                             st.rerun()
+
+# ==========================================
+# 4. SOLAPA: INGRESOS / EGRESO STOCK
+# ==========================================
+with tab_movimientos:
+    st.markdown("### Registro de Ingresos y Egresos de Stock")
+    st.caption("Registra entradas (compras, devoluciones) o salidas (ventas manuales, pérdidas) de mercadería.")
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    with st.form("form_movimiento", clear_on_submit=True):
+        col_m1, col_m2 = st.columns(2)
+        with col_m1:
+            fecha_mov = st.date_input("📅 Fecha del Movimiento", datetime.date.today())
+            tipo_mov = st.selectbox("Tipo de Movimiento", ["Ingreso (+)", "Egreso (-)"])
+            responsable_mov = st.text_input("👤 Responsable", placeholder="Ej: Tamara")
+        with col_m2:
+            if not df_productos.empty:
+                opciones_mov = df_productos.apply(lambda x: f"{x['Descripción']} | SKU: {x['SKU']}", axis=1).tolist()
+                opciones_mov.insert(0, "Seleccione un producto...")
+            else:
+                opciones_mov = ["No hay productos disponibles"]
+            
+            producto_mov = st.selectbox("Producto", opciones_mov)
+            cantidad_mov = st.number_input("Cantidad", min_value=1, step=1, value=1)
+
+        col_m3, col_m4 = st.columns(2)
+        with col_m3:
+            talle_mov = st.text_input("Talle (Opcional)")
+        with col_m4:
+            color_mov = st.text_input("Color (Opcional)")
+
+        observacion_mov = st.text_area("Observación / Motivo", placeholder="Ej: Venta presencial o reposición de fábrica")
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        btn_guardar_mov = st.form_submit_button("💾 Registrar Movimiento")
+
+        if btn_guardar_mov:
+            if producto_mov in ["Seleccione un producto...", "No hay productos disponibles"]:
+                st.error("Por favor, selecciona un producto válido.")
+            elif not responsable_mov:
+                st.error("Por favor, ingresa el nombre del responsable.")
+            else:
+                partes = producto_mov.split(" | SKU: ")
+                nombre_p = partes[0]
+                sku_p = partes[1] if len(partes) > 1 else "Sin SKU"
+
+                conexion = sqlite3.connect(DB_PATH)
+                cursor = conexion.cursor()
+                cursor.execute("""
+                    INSERT INTO movimientos_stock (fecha, tipo, sku, producto, talle, color, cantidad, responsable, observacion)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (str(fecha_mov), tipo_mov, sku_p, nombre_p, talle_mov, color_mov, float(cantidad_mov), responsable_mov, observacion_mov))
+                conexion.commit()
+                conexion.close()
+
+                st.success(f"¡Movimiento de {tipo_mov} registrado correctamente para {nombre_p}!")
+
+    st.markdown("<br><hr><br>", unsafe_allow_html=True)
+    st.markdown("### Historial de Movimientos")
+    df_movs = cargar_historial_movimientos()
+    if df_movs.empty:
+        st.info("No hay movimientos registrados todavía.")
+    else:
+        def pintar_tipo(val):
+            color = 'green' if 'Ingreso' in str(val) else 'red'
+            return f'color: {color}; font-weight: bold;'
+        st.dataframe(df_movs.drop(columns=["ID"]).style.map(pintar_tipo, subset=['Tipo']), width='stretch', hide_index=True)
