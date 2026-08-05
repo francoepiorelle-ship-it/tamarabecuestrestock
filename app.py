@@ -784,7 +784,7 @@ with tab_historial:
                 titulo_doc = f"Control_Stock_{filtro_tanda_fisica.replace(' | ', '_').replace(':', '')}"
                 fila_meta = df_hist_mostrar.iloc[0] if not df_hist_mostrar.empty else None
                 meta_info = {
-                    "fecha": f"{fila_meta['Fecha']} ({fila_meta['Hora']})",
+                    "fecha": f"{fila_meta['Fecha']} | Hora: {fila_meta['Hora']}",
                     "proveedor": "Control Físico Interno",
                     "c1": fila_meta['Responsable'],
                     "c2": "-", "c3": "-", "c4": "-", "c5": "-"
@@ -894,7 +894,7 @@ with tab_historial:
                 
                 fila_meta_m = df_mov_mostrar.iloc[0] if not df_mov_mostrar.empty else None
                 meta_info_m = {
-                    "fecha": f"{fila_meta_m['Fecha']} ({fila_meta_m['Hora']})",
+                    "fecha": f"{fila_meta_m['Fecha']} | Hora: {fila_meta_m['Hora']}",
                     "proveedor": fila_meta_m['Proveedor'],
                     "c1": fila_meta_m['Conteo Inicial'],
                     "c2": fila_meta_m['Control de Calidad'],
@@ -903,7 +903,8 @@ with tab_historial:
                     "c5": fila_meta_m['Ubicación Depósito']
                 } if fila_meta_m is not None else None
 
-            columnas_a_quitar = ["ID", "Mov_Label", "Conteo Inicial", "Control de Calidad", "Cotejo Remito", "Etiquetado SKU", "Ubicación Depósito"]
+            # Se eliminaron las columnas Fecha y Hora de la tabla principal de visualización/impresión
+            columnas_a_quitar = ["ID", "Mov_Label", "Fecha", "Hora", "Conteo Inicial", "Control de Calidad", "Cotejo Remito", "Etiquetado SKU", "Ubicación Depósito"]
             df_final_hist_mov = df_mov_mostrar.drop(columns=[c for c in columnas_a_quitar if c in df_mov_mostrar.columns])
             
             st.dataframe(df_final_hist_mov, use_container_width=True, hide_index=True)
