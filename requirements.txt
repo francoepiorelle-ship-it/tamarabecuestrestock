@@ -4,3 +4,4 @@ openpyxl
 xlsxwriter
 streamlit==1.38.0
 starlette==0.37.2
+streamlit>=1.40.0
