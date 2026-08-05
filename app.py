@@ -74,6 +74,14 @@ def asegurar_base_datos():
             fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    # Tabla nueva para gestionar proveedores adicionales
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS proveedores_extra (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nombre TEXT UNIQUE,
+            fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
     
     cursor.execute("PRAGMA table_info(productos)")
     cols_prod = [col[1] for col in cursor.fetchall()]
@@ -164,6 +172,20 @@ def cargar_datos():
         df = pd.DataFrame(columns=["SKU", "Descripción", "Rubro", "Subrubro", "Proveedor", "Stock", "Stock Reservado", "Stock Disponible", "Última Actualización"])
     conexion.close()
     return df
+
+def obtener_lista_proveedores(df_prod):
+    asegurar_base_datos()
+    conexion = sqlite3.connect(DB_PATH)
+    cursor = conexion.cursor()
+    cursor.execute("SELECT nombre FROM proveedores_extra")
+    provin_extra = [row[0] for row in cursor.fetchall()]
+    conexion.close()
+    
+    prov_excel = df_prod['Proveedor'].dropna().unique().tolist() if not df_prod.empty and 'Proveedor' in df_prod.columns else []
+    
+    # Combinar, limpiar y ordenar de forma única
+    todos = sorted(list(set(list(prov_excel) + list(provin_extra))))
+    return todos
 
 def cargar_historial():
     conexion = sqlite3.connect(DB_PATH)
@@ -377,6 +399,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 df_productos = cargar_datos()
+lista_proveedores_total = obtener_lista_proveedores(df_productos)
 
 # --- CABECERA SUPERIOR ---
 col_head1, col_head2 = st.columns([5, 1])
@@ -402,9 +425,45 @@ tab_dash, tab_control, tab_movimientos, tab_historial = st.tabs([
 # 1. SOLAPA: DASHBOARD GENERAL
 # ==========================================
 with tab_dash:
-    st.caption("ℹ️ Vista general del estado actual de la mercadería sincronizada de forma automática con Rubros y Subrubros.")
+    st.caption("ℹ️ Vista general del estado actual de la mercadería sincronizada y gestión general de proveedores.")
     st.markdown("<br>", unsafe_allow_html=True)
     
+    # --- APARTADO NUEVO: GESTIÓN DE PROVEEDORES ---
+    with st.expander("🏢 Gestión de Proveedores (Agregar o Ver Proveedores Nuevos)", expanded=False):
+        st.markdown("#### Agregar nuevo proveedor manualmente")
+        st.caption("Si un proveedor no aparece en la lista de recepción, podés darlo de alta aquí para que esté disponible de inmediato.")
+        
+        with st.form("form_nuevo_proveedor", clear_on_submit=True):
+            nuevo_prov_input = st.text_input("Nombre del Proveedor", placeholder="Ej: Distribuidora Mayorista SRL")
+            btn_guardar_prov = st.form_submit_button("Guardar Proveedor")
+            
+            if btn_guardar_prov:
+                if nuevo_prov_input.strip() == "":
+                    st.error("Por favor, ingresá un nombre válido.")
+                else:
+                    try:
+                        conexion = sqlite3.connect(DB_PATH)
+                        cursor = conexion.cursor()
+                        cursor.execute("INSERT INTO proveedores_extra (nombre) VALUES (?)", (nuevo_prov_input.strip(),))
+                        conexion.commit()
+                        conexion.close()
+                        st.success(f"¡Proveedor '{nuevo_prov_input.strip()}' agregado exitosamente!")
+                        st.rerun()
+                    except sqlite3.IntegrityError:
+                        st.warning("Este proveedor ya se encuentra registrado.")
+                    except Exception as e:
+                        st.error(f"Error al guardar: {e}")
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("#### Proveedores registrados actualmente en el sistema:")
+        if lista_proveedores_total:
+            df_prov_list = pd.DataFrame(lista_proveedores_total, columns=["Proveedor"])
+            st.dataframe(df_prov_list, use_container_width=True, hide_index=True)
+        else:
+            st.info("No hay proveedores cargados todavía.")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
     if df_productos.empty:
         st.warning("⚠️ Esperando a que el sistema automatizado sincronice el primer archivo de stock en GitHub.")
     else:
@@ -427,7 +486,7 @@ with tab_dash:
                 rubros_disponibles = ["Todos"] + sorted(df_productos['Rubro'].dropna().unique().tolist()) if 'Rubro' in df_productos.columns else ["Todos"]
                 filtro_rubro_dash = st.selectbox("Filtrar por Rubro:", rubros_disponibles)
             with f_col3:
-                proveedores_disponibles = ["Todos"] + sorted(df_productos['Proveedor'].dropna().unique().tolist()) if 'Proveedor' in df_productos.columns else ["Todos"]
+                proveedores_disponibles = ["Todos"] + lista_proveedores_total
                 filtro_proveedor_dash = st.selectbox("Filtrar por Proveedor:", proveedores_disponibles)
 
         df_filtrado = df_productos.copy()
@@ -564,8 +623,8 @@ with tab_movimientos:
     with col_mfech:
         fecha_recepcion_dia = st.date_input("📅 Fecha de Recepción", datetime.date.today(), key="f_rec_dia")
     with col_mprov:
-        lista_prov_form = sorted(df_productos['Proveedor'].dropna().unique().tolist()) if 'Proveedor' in df_productos.columns else []
-        proveedor_recepcion_global = st.selectbox("📦 Proveedor de la Recepción", ["General"] + lista_prov_form, key="prov_rec_global")
+        # Aquí se usa la lista combinada incluyendo los proveedores dados de alta manualmente
+        proveedor_recepcion_global = st.selectbox("📦 Proveedor de la Recepción", ["General"] + lista_proveedores_total, key="prov_rec_global")
 
     st.markdown("#### 👥 Responsables del Proceso")
     r_col1, r_col2, r_col3, r_col4, r_col5 = st.columns(5)
@@ -903,7 +962,6 @@ with tab_historial:
                     "c5": fila_meta_m['Ubicación Depósito']
                 } if fila_meta_m is not None else None
 
-            # Se eliminaron las columnas Fecha y Hora de la tabla principal de visualización/impresión
             columnas_a_quitar = ["ID", "Mov_Label", "Fecha", "Hora", "Conteo Inicial", "Control de Calidad", "Cotejo Remito", "Etiquetado SKU", "Ubicación Depósito"]
             df_final_hist_mov = df_mov_mostrar.drop(columns=[c for c in columnas_a_quitar if c in df_mov_mostrar.columns])
             
