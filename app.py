@@ -74,7 +74,6 @@ def asegurar_base_datos():
             fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
-    # Tabla nueva para gestionar proveedores adicionales
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS proveedores_extra (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -182,8 +181,6 @@ def obtener_lista_proveedores(df_prod):
     conexion.close()
     
     prov_excel = df_prod['Proveedor'].dropna().unique().tolist() if not df_prod.empty and 'Proveedor' in df_prod.columns else []
-    
-    # Combinar, limpiar y ordenar de forma única
     todos = sorted(list(set(list(prov_excel) + list(provin_extra))))
     return todos
 
@@ -428,7 +425,6 @@ with tab_dash:
     st.caption("ℹ️ Vista general del estado actual de la mercadería sincronizada y gestión general de proveedores.")
     st.markdown("<br>", unsafe_allow_html=True)
     
-    # --- APARTADO NUEVO: GESTIÓN DE PROVEEDORES ---
     with st.expander("🏢 Gestión de Proveedores (Agregar o Ver Proveedores Nuevos)", expanded=False):
         st.markdown("#### Agregar nuevo proveedor manualmente")
         st.caption("Si un proveedor no aparece en la lista de recepción, podés darlo de alta aquí para que esté disponible de inmediato.")
@@ -616,14 +612,13 @@ with tab_control:
 # ==========================================
 with tab_movimientos:
     st.markdown("### Recepción de Mercadería")
-    st.caption("Buscá el producto, agregalo a la lista y ajustá la cantidad con los botones de más y menos.")
+    st.caption("Buscá el producto, agregalo a la lista y ajustá la cantidad con los botones de más y menos de forma segura.")
     st.markdown("<br>", unsafe_allow_html=True)
     
     col_mfech, col_mprov = st.columns(2)
     with col_mfech:
         fecha_recepcion_dia = st.date_input("📅 Fecha de Recepción", datetime.date.today(), key="f_rec_dia")
     with col_mprov:
-        # Aquí se usa la lista combinada incluyendo los proveedores dados de alta manualmente
         proveedor_recepcion_global = st.selectbox("📦 Proveedor de la Recepción", ["General"] + lista_proveedores_total, key="prov_rec_global")
 
     st.markdown("#### 👥 Responsables del Proceso")
@@ -643,8 +638,9 @@ with tab_movimientos:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
+    # --- FORMULARIO PROTEGIDO PARA AGREGAR PRODUCTOS SIN REINICIAR LA LISTA ---
     with st.container():
-        st.markdown("#### 🔍 Buscador Individual")
+        st.markdown("#### 🔍 Buscador Individual Protegido")
         
         if not df_productos.empty:
             opciones_skus_dict = {f"{row['Descripción']} | SKU: {row['SKU']} | Rubro: {row.get('Rubro', 'N/A')} | Subrubro: {row.get('Subrubro', 'N/A')}": row for _, row in df_productos.iterrows()}
@@ -652,11 +648,15 @@ with tab_movimientos:
         else:
             lista_opciones_prod = ["No hay productos disponibles"]
 
-        col_b_sel, col_b_btn = st.columns([3, 1])
-        with col_b_sel:
-            producto_individual_elegido = st.selectbox("Buscar Producto", lista_opciones_prod, label_visibility="collapsed")
-        with col_b_btn:
-            if st.button("➕ Agregar a la lista"):
+        with st.form("form_agregar_recepcion", clear_on_submit=True):
+            col_b_sel, col_b_btn = st.columns([3, 1])
+            with col_b_sel:
+                producto_individual_elegido = st.selectbox("Buscar Producto", lista_opciones_prod)
+            with col_b_btn:
+                st.markdown("<br>", unsafe_allow_html=True)
+                btn_enviar_prod = st.form_submit_button("➕ Agregar")
+            
+            if btn_enviar_prod:
                 if producto_individual_elegido != "Seleccione un producto para agregar..." and producto_individual_elegido != "No hay productos disponibles":
                     datos_prod = opciones_skus_dict[producto_individual_elegido]
                     sku_val = str(datos_prod['SKU'])
@@ -677,7 +677,6 @@ with tab_movimientos:
                             "Observación": ""
                         })
                         st.success(f"¡Agregado: {desc_val}!")
-                        st.rerun()
                     else:
                         st.warning("El producto ya se encuentra en la lista.")
 
@@ -685,7 +684,7 @@ with tab_movimientos:
     st.markdown("#### 📋 Lista de Productos a Recibir (Control de Cantidades y Movimiento)")
 
     if not st.session_state.tabla_recepcion_items:
-        st.info("ℹ️ La lista está vacía. Buscá y agregá productos utilizando el buscador de arriba.")
+        st.info("ℹ️ La lista está vacía. Buscá y agregá productos utilizando el buscador protegido de arriba.")
     else:
         indices_a_borrar = []
         for idx, item in enumerate(st.session_state.tabla_recepcion_items):
@@ -697,6 +696,7 @@ with tab_movimientos:
                     tipo_actual = st.selectbox("Tipo", ["Ingreso (+)", "Egreso (-)"], index=0 if item['Tipo']=="Ingreso (+)" else 1, key=f"tipo_{idx}", label_visibility="collapsed")
                     st.session_state.tabla_recepcion_items[idx]['Tipo'] = tipo_actual
                 with cols_item[2]:
+                    # Controles numéricos directos con validación de estado por índice para evitar pérdida de datos
                     c_menos, c_cant, c_mas = st.columns([1, 1.5, 1])
                     with c_menos:
                         if st.button("➖", key=f"btn_menos_{idx}"):
