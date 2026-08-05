@@ -5,6 +5,7 @@ import streamlit as st
 import datetime
 from zoneinfo import ZoneInfo
 import io
+import base64
 
 # Configuración inicial de la página
 st.set_page_config(
@@ -251,12 +252,25 @@ def convertir_df_a_html_impresion(df, titulo_reporte, meta_data=None):
 
     remito_html_seccion = ""
     if meta_data and meta_data.get('remito_path'):
-        nombre_remito_archivo = Path(meta_data.get('remito_path')).name
-        remito_html_seccion = f"""
-        <div class="remito-box">
-            <b>Comprobante / Remito Adjunto de esta Tanda:</b> {nombre_remito_archivo}
-        </div>
-        """
+        ruta_r = Path(meta_data.get('remito_path'))
+        if ruta_r.exists():
+            ext = ruta_r.suffix.lower()
+            if ext in ['.png', '.jpg', '.jpeg']:
+                with open(ruta_r, "rb") as img_file:
+                    encoded_string = base64.b64encode(img_file.read()).decode('utf-8')
+                mime_type = "image/jpeg" if ext in ['.jpg', '.jpeg'] else "image/png"
+                remito_html_seccion = f"""
+                <div class="remito-box">
+                    <b>Comprobante / Remito Adjunto de esta Tanda:</b><br><br>
+                    <img src="data:{mime_type};base64,{encoded_string}" class="remito-img"/>
+                </div>
+                """
+            else:
+                remito_html_seccion = f"""
+                <div class="remito-box">
+                    <b>Comprobante / Remito Adjunto de esta Tanda:</b> {ruta_r.name} (Archivo PDF)
+                </div>
+                """
 
     html = f"""
     <html>
@@ -269,7 +283,8 @@ def convertir_df_a_html_impresion(df, titulo_reporte, meta_data=None):
                 .meta-box {{ border: 1px solid #cbd5e1; background-color: #f8fafc; padding: 10px; border-radius: 6px; margin-bottom: 15px; }}
                 .meta-table {{ width: 100%; border-collapse: collapse; }}
                 .meta-table td {{ padding: 4px 8px; font-size: 13px; border: none; }}
-                .remito-box {{ margin-top: 15px; padding: 10px; border: 1px dashed #00b89f; background-color: #f0fdf4; font-size: 13px; border-radius: 6px; }}
+                .remito-box {{ margin-top: 15px; padding: 10px; border: 1px dashed #00b89f; background-color: #f0fdf4; font-size: 13px; border-radius: 6px; page-break-inside: avoid; text-align: center; }}
+                .remito-img {{ max-width: 100%; height: auto; border: 1px solid #cbd5e1; border-radius: 4px; margin-top: 10px; }}
                 table.data-table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }}
                 table.data-table th, table.data-table td {{ border: 1px solid #cbd5e1; padding: 6px 10px; text-align: left; font-size: 12px; }}
                 table.data-table th {{ background-color: #f1f5f9; color: #0f172a; }}
@@ -968,7 +983,6 @@ with tab_historial:
                 
                 fila_meta_m = df_mov_mostrar.iloc[0] if not df_mov_mostrar.empty else None
                 
-                # Buscar si hay un archivo de remito asociado en la base para esta tanda específica
                 conexion = sqlite3.connect(DB_PATH)
                 cursor = conexion.cursor()
                 cursor.execute("SELECT remito_archivo FROM movimientos_stock WHERE fecha = ? AND hora = ? AND proveedor = ? LIMIT 1", (fila_meta_m['Fecha'], fila_meta_m['Hora'], fila_meta_m['Proveedor']))
@@ -988,16 +1002,19 @@ with tab_historial:
                     "remito_path": ruta_remito_actual
                 } if fila_meta_m is not None else None
 
-            # Excluimos columnas internas y la columna de remito por fila para que se vea limpio
             columnas_a_quitar = ["ID", "Mov_Label", "Fecha", "Hora", "Conteo Inicial", "Control de Calidad", "Cotejo Remito", "Etiquetado SKU", "Ubicación Depósito", "Remito"]
             df_final_hist_mov = df_mov_mostrar.drop(columns=[c for c in columnas_a_quitar if c in df_mov_mostrar.columns])
             
             st.dataframe(df_final_hist_mov, use_container_width=True, hide_index=True)
 
-            # Mostrar el archivo de remito debajo de la planilla si corresponde a una tanda específica
             if filtro_mov_tanda != "Todas las recepciones (Historial Completo)" and ruta_remito_actual and Path(ruta_remito_actual).exists():
                 st.markdown("<br>", unsafe_allow_html=True)
                 st.info(f"📎 **Comprobante / Remito adjunto de esta recepción:** `{Path(ruta_remito_actual).name}`")
+                
+                # Visualización directa en Streamlit
+                if Path(ruta_remito_actual).suffix.lower() in ['.png', '.jpg', '.jpeg']:
+                    st.image(ruta_remito_actual, caption="Imagen del Remito Adjunto", use_container_width=True)
+
                 with open(ruta_remito_actual, "rb") as file_rem:
                     st.download_button(
                         label="📥 Descargar Archivo de Remito Adjunto",
@@ -1041,6 +1058,8 @@ with tab_historial:
                         idx_sel = opciones_remitos.index(remito_elegido)
                         ruta_archivo_remito = df_con_remito.iloc[idx_sel]['Remito']
                         if Path(ruta_archivo_remito).exists():
+                            if Path(ruta_archivo_remito).suffix.lower() in ['.png', '.jpg', '.jpeg']:
+                                st.image(ruta_archivo_remito, caption="Vista previa del remito", use_container_width=True)
                             with open(ruta_archivo_remito, "rb") as file_in:
                                 st.download_button(
                                     label="📥 Descargar Archivo de Remito",
