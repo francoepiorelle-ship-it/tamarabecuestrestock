@@ -74,7 +74,6 @@ def asegurar_base_datos():
             fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
-    # Tabla nueva para gestionar proveedores adicionales
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS proveedores_extra (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -182,7 +181,6 @@ def obtener_lista_proveedores(df_prod):
     conexion.close()
     
     prov_excel = df_prod['Proveedor'].dropna().unique().tolist() if not df_prod.empty and 'Proveedor' in df_prod.columns else []
-    
     todos = sorted(list(set(list(prov_excel) + list(provin_extra))))
     return todos
 
@@ -190,6 +188,12 @@ def cargar_historial():
     conexion = sqlite3.connect(DB_PATH)
     try:
         df = pd.read_sql("SELECT id AS ID, fecha AS Fecha, hora AS Hora, responsable AS Responsable, sku AS SKU, producto AS Producto, stock_fisico AS 'Stock Físico', stock_sistema AS 'Stock Sistema', diferencia AS Diferencia FROM controles_fisicos ORDER BY fecha DESC, hora DESC, id DESC", conexion)
+        if not df.empty and 'Stock Físico' in df.columns:
+            df['Stock Físico'] = df['Stock Físico'].astype(int)
+        if not df.empty and 'Stock Sistema' in df.columns:
+            df['Stock Sistema'] = df['Stock Sistema'].astype(int)
+        if not df.empty and 'Diferencia' in df.columns:
+            df['Diferencia'] = df['Diferencia'].astype(int)
     except Exception:
         df = pd.DataFrame(columns=["ID", "Fecha", "Hora", "Responsable", "SKU", "Producto", "Stock Físico", "Stock Sistema", "Diferencia"])
     conexion.close()
@@ -206,6 +210,8 @@ def cargar_historial_movimientos():
                    resp_ubicacion AS 'Ubicación Depósito', observacion AS Observación, remito_archivo AS Remito 
             FROM movimientos_stock ORDER BY fecha DESC, hora DESC, id DESC
         """, conexion)
+        if not df.empty and 'Cantidad' in df.columns:
+            df['Cantidad'] = df['Cantidad'].astype(int)
     except Exception:
         df = pd.DataFrame(columns=["ID", "Fecha", "Hora", "Tipo", "SKU", "Producto", "Rubro", "Subrubro", "Proveedor", "Cantidad", "Conteo Inicial", "Control de Calidad", "Cotejo Remito", "Etiquetado SKU", "Ubicación Depósito", "Observación", "Remito"])
     conexion.close()
@@ -243,6 +249,15 @@ def convertir_df_a_html_impresion(df, titulo_reporte, meta_data=None):
         </div>
         """
 
+    remito_html_seccion = ""
+    if meta_data and meta_data.get('remito_path'):
+        nombre_remito_archivo = Path(meta_data.get('remito_path')).name
+        remito_html_seccion = f"""
+        <div class="remito-box">
+            <b>Comprobante / Remito Adjunto de esta Tanda:</b> {nombre_remito_archivo}
+        </div>
+        """
+
     html = f"""
     <html>
         <head>
@@ -254,6 +269,7 @@ def convertir_df_a_html_impresion(df, titulo_reporte, meta_data=None):
                 .meta-box {{ border: 1px solid #cbd5e1; background-color: #f8fafc; padding: 10px; border-radius: 6px; margin-bottom: 15px; }}
                 .meta-table {{ width: 100%; border-collapse: collapse; }}
                 .meta-table td {{ padding: 4px 8px; font-size: 13px; border: none; }}
+                .remito-box {{ margin-top: 15px; padding: 10px; border: 1px dashed #00b89f; background-color: #f0fdf4; font-size: 13px; border-radius: 6px; }}
                 table.data-table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }}
                 table.data-table th, table.data-table td {{ border: 1px solid #cbd5e1; padding: 6px 10px; text-align: left; font-size: 12px; }}
                 table.data-table th {{ background-color: #f1f5f9; color: #0f172a; }}
@@ -265,6 +281,7 @@ def convertir_df_a_html_impresion(df, titulo_reporte, meta_data=None):
             <p style="text-align: center; font-size: 12px; color: #64748b;"><b>Emitido:</b> {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
             {meta_html}
             {df.to_html(index=False, classes='data-table')}
+            {remito_html_seccion}
             <script>
                 window.onload = function() {{ window.print(); }}
             </script>
@@ -529,7 +546,7 @@ with tab_control:
             with col1:
                 producto_seleccionado = st.selectbox("Buscar Producto", opciones_buscador)
             with col2:
-                stock_fisico_input = st.number_input("Stock Físico", min_value=0.0, step=1.0)
+                stock_fisico_input = st.number_input("Stock Físico", min_value=0, step=1, format="%d")
                 
             st.markdown("<br>", unsafe_allow_html=True)
             agregar_btn = st.form_submit_button("Agregar a la tanda de hoy")
@@ -540,13 +557,13 @@ with tab_control:
                 sku_extraido = partes[1].split(" | Rubro: ")[0] if len(partes) > 1 else "Sin SKU"
                 
                 prod_info = df_productos[df_productos['SKU'].astype(str) == str(sku_extraido).strip()]
-                stock_sis = prod_info.iloc[0]['Stock'] if not prod_info.empty else 0.0
-                diferencia = stock_fisico_input - stock_sis
+                stock_sis = int(prod_info.iloc[0]['Stock']) if not prod_info.empty else 0
+                diferencia = int(stock_fisico_input) - stock_sis
                 
                 st.session_state.lista_control.append({
                     "SKU": sku_extraido,
                     "Producto": nombre_prod,
-                    "Stock Físico": stock_fisico_input,
+                    "Stock Físico": int(stock_fisico_input),
                     "Stock Sistema": stock_sis,
                     "Diferencia": diferencia
                 })
@@ -670,7 +687,7 @@ with tab_movimientos:
                             "Rubro": rubro_val,
                             "Subrubro": subrubro_val,
                             "Tipo": "Ingreso (+)",
-                            "Cantidad": 1.0,
+                            "Cantidad": 1,
                             "Observación": ""
                         })
                         st.success(f"¡Agregado: {desc_val}!")
@@ -756,13 +773,13 @@ with tab_movimientos:
                     cursor.execute("""
                         INSERT INTO movimientos_stock (fecha, hora, tipo, sku, producto, rubro, subrubro, proveedor, cantidad, resp_conteo, resp_calidad, resp_remito, resp_etiquetado, resp_ubicacion, observacion, remito_archivo)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (str(fecha_recepcion_dia), hora_arg, item['Tipo'], item['SKU'], item['Producto'], item['Rubro'], item['Subrubro'], proveedor_recepcion_global, item['Cantidad'], resp_conteo, resp_calidad, resp_remito, resp_etiquetado, resp_ubicacion, item['Observación'], ruta_guardada))
+                    """, (str(fecha_recepcion_dia), hora_arg, item['Tipo'], item['SKU'], item['Producto'], item['Rubro'], item['Subrubro'], proveedor_recepcion_global, int(item['Cantidad']), resp_conteo, resp_calidad, resp_remito, resp_etiquetado, resp_ubicacion, item['Observación'], ruta_guardada))
 
                     if "Ingreso" in item['Tipo']:
                         lista_para_etiquetas.append({
                             "Producto": item['Producto'],
                             "SKU": item['SKU'],
-                            "Cantidad": item['Cantidad']
+                            "Cantidad": int(item['Cantidad'])
                         })
 
                 conexion.commit()
@@ -940,6 +957,7 @@ with tab_historial:
             
             filtro_mov_tanda = st.selectbox("🔍 Seleccionar Planilla / Recepción a visualizar o exportar:", movs_disponibles)
             
+            ruta_remito_actual = None
             if filtro_mov_tanda == "Todas las recepciones (Historial Completo)":
                 df_mov_mostrar = df_mov
                 titulo_doc_m = "Historial_Completo_Recepciones"
@@ -949,6 +967,16 @@ with tab_historial:
                 titulo_doc_m = f"Recepcion_{filtro_mov_tanda.replace(' | ', '_').replace(':', '')}"
                 
                 fila_meta_m = df_mov_mostrar.iloc[0] if not df_mov_mostrar.empty else None
+                
+                # Buscar si hay un archivo de remito asociado en la base para esta tanda específica
+                conexion = sqlite3.connect(DB_PATH)
+                cursor = conexion.cursor()
+                cursor.execute("SELECT remito_archivo FROM movimientos_stock WHERE fecha = ? AND hora = ? AND proveedor = ? LIMIT 1", (fila_meta_m['Fecha'], fila_meta_m['Hora'], fila_meta_m['Proveedor']))
+                res_rem = cursor.fetchone()
+                conexion.close()
+                if res_rem and res_rem[0]:
+                    ruta_remito_actual = res_rem[0]
+
                 meta_info_m = {
                     "fecha": f"{fila_meta_m['Fecha']} | Hora: {fila_meta_m['Hora']}",
                     "proveedor": fila_meta_m['Proveedor'],
@@ -956,13 +984,28 @@ with tab_historial:
                     "c2": fila_meta_m['Control de Calidad'],
                     "c3": fila_meta_m['Cotejo Remito'],
                     "c4": fila_meta_m['Etiquetado SKU'],
-                    "c5": fila_meta_m['Ubicación Depósito']
+                    "c5": fila_meta_m['Ubicación Depósito'],
+                    "remito_path": ruta_remito_actual
                 } if fila_meta_m is not None else None
 
-            columnas_a_quitar = ["ID", "Mov_Label", "Fecha", "Hora", "Conteo Inicial", "Control de Calidad", "Cotejo Remito", "Etiquetado SKU", "Ubicación Depósito"]
+            # Excluimos columnas internas y la columna de remito por fila para que se vea limpio
+            columnas_a_quitar = ["ID", "Mov_Label", "Fecha", "Hora", "Conteo Inicial", "Control de Calidad", "Cotejo Remito", "Etiquetado SKU", "Ubicación Depósito", "Remito"]
             df_final_hist_mov = df_mov_mostrar.drop(columns=[c for c in columnas_a_quitar if c in df_mov_mostrar.columns])
             
             st.dataframe(df_final_hist_mov, use_container_width=True, hide_index=True)
+
+            # Mostrar el archivo de remito debajo de la planilla si corresponde a una tanda específica
+            if filtro_mov_tanda != "Todas las recepciones (Historial Completo)" and ruta_remito_actual and Path(ruta_remito_actual).exists():
+                st.markdown("<br>", unsafe_allow_html=True)
+                st.info(f"📎 **Comprobante / Remito adjunto de esta recepción:** `{Path(ruta_remito_actual).name}`")
+                with open(ruta_remito_actual, "rb") as file_rem:
+                    st.download_button(
+                        label="📥 Descargar Archivo de Remito Adjunto",
+                        data=file_rem,
+                        file_name=Path(ruta_remito_actual).name,
+                        mime="application/octet-stream",
+                        key="btn_dl_remito_tanda"
+                    )
 
             st.markdown("<br>", unsafe_allow_html=True)
             
@@ -987,7 +1030,7 @@ with tab_historial:
                 )
 
             st.markdown("<br>", unsafe_allow_html=True)
-            with st.expander("📎 Ver o descargar remitos adjuntos"):
+            with st.expander("📎 Ver o descargar todos los remitos históricos"):
                 df_con_remito = df_mov[df_mov['Remito'].notna() & (df_mov['Remito'] != "")]
                 if df_con_remito.empty:
                     st.info("No hay remitos adjuntos en los registros actuales.")
