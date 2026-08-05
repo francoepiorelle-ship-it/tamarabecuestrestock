@@ -16,6 +16,7 @@ CARPETA_REPO_GITHUB = Path(r"C:\Users\tamar\OneDrive\Escritorio\StockControl")
 CARPETA_ORIGEN_EXCEL = CARPETA_REPO_GITHUB / "excel"
 CARPETA_ORIGEN_EXCEL.mkdir(exist_ok=True)
 NOMBRE_ARCHIVO_DESTINO = "stock_actualizado.xlsx"
+RUTA_BD = CARPETA_REPO_GITHUB / "database.db"  # <--- Definida correctamente aquí
 
 
 def log(mensaje):
@@ -97,18 +98,39 @@ def ejecutar_sincronizacion_completa():
 
         log(f"✅ ¡Stock descargado con éxito en: {archivo_temporal}!")
 
-  # ==========================================
+        # ==========================================
         # PASO 2: Actualizar Base de Datos local
         # ==========================================
         log("🔄 Actualizando base de datos local...")
         df_subido = pd.read_excel(archivo_temporal)
         
-        # ---> NUEVO: Normalizar nombres de columnas por si Contabilium cambia espacios o guiones <---
-        df_subido.columns = df_subido.columns.str.strip() # Saca espacios extra
+        # Normalizar nombres de columnas (espacios o guiones)
+        df_subido.columns = df_subido.columns.str.strip()
         if "Sub Rubro" in df_subido.columns:
             df_subido.rename(columns={"Sub Rubro": "Subrubro"}, inplace=True)
         elif "Sub-Rubro" in df_subido.columns:
             df_subido.rename(columns={"Sub-Rubro": "Subrubro"}, inplace=True)
+
+        # Mapeo y creación de la tabla 'productos' en SQLite para que la app web lea bien los datos
+        conexion = sqlite3.connect(RUTA_BD)
+        
+        # Preparamos el DataFrame con la estructura exacta que espera la app de Streamlit
+        df_sql = pd.DataFrame()
+        df_sql["SKU"] = df_subido.get("SKU", "")
+        df_sql["Descripción"] = df_subido.get("Descripcion", "")
+        df_sql["Proveedor"] = df_subido.get("Proveedor", "")
+        df_sql["Rubro"] = df_subido.get("Rubro", "")
+        df_sql["Subrubro"] = df_subido.get("Subrubro", "")
+        df_sql["Stock"] = df_subido.get("Stock", 0)
+        df_sql["Stock Reservado"] = df_subido.get("Stock Reservado", 0)
+        df_sql["Stock Disponible"] = df_subido.get("Stock Disponible", 0)
+        df_sql["Última Actualización"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+        # Guardar en SQLite reemplazando la tabla anterior
+        df_sql.to_sql("productos", conexion, if_exists="replace", index=False)
+        conexion.close()
+        log("💾 ¡Base de datos local (database.db) actualizada con éxito!")
+
         # ==========================================
         # PASO 3: Copiar archivo y subir a GitHub
         # ==========================================
