@@ -2,4 +2,4 @@ streamlit
 pandas
 openpyxl
 xlsxwriter
-streamlit==1.39.0
+starlette<0.38.0
