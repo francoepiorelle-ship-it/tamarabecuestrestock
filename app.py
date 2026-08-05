@@ -559,7 +559,8 @@ with tab_control:
             color = 'green' if val == 0 else 'red'
             return f'color: {color}; font-weight: bold;'
         
-        st.dataframe(df_control_actual.style.map(pintar_diferencia, subset=['Diferencia']), use_container_width=True)
+        # Corrección aplicada: se usa applymap para máxima compatibilidad con Pandas/Streamlit
+        st.dataframe(df_control_actual.style.applymap(pintar_diferencia, subset=['Diferencia']), use_container_width=True)
         
         st.markdown("<br>", unsafe_allow_html=True)
         excel_bytes_ctrl = convertir_df_a_excel(df_control_actual)
@@ -638,7 +639,6 @@ with tab_movimientos:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # --- FORMULARIO PROTEGIDO PARA AGREGAR PRODUCTOS SIN REINICIAR LA LISTA ---
     with st.container():
         st.markdown("#### 🔍 Buscador Individual Protegido")
         
@@ -696,7 +696,6 @@ with tab_movimientos:
                     tipo_actual = st.selectbox("Tipo", ["Ingreso (+)", "Egreso (-)"], index=0 if item['Tipo']=="Ingreso (+)" else 1, key=f"tipo_{idx}", label_visibility="collapsed")
                     st.session_state.tabla_recepcion_items[idx]['Tipo'] = tipo_actual
                 with cols_item[2]:
-                    # Controles numéricos directos con validación de estado por índice para evitar pérdida de datos
                     c_menos, c_cant, c_mas = st.columns([1, 1.5, 1])
                     with c_menos:
                         if st.button("➖", key=f"btn_menos_{idx}"):
@@ -855,7 +854,9 @@ with tab_historial:
                 return f'color: {color}; font-weight: bold;'
                 
             df_final_hist_fisico = df_hist_mostrar.drop(columns=["ID", "Tanda_Label"])
-            st.dataframe(df_final_hist_fisico.style.map(pintar_historial, subset=['Diferencia']), use_container_width=True, hide_index=True)
+            
+            # Corrección aplicada: se usa applymap para máxima compatibilidad
+            st.dataframe(df_final_hist_fisico.style.applymap(pintar_historial, subset=['Diferencia']), use_container_width=True, hide_index=True)
             
             st.markdown("<br>", unsafe_allow_html=True)
             
