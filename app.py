@@ -252,6 +252,7 @@ def convertir_df_a_html_impresion(df, titulo_reporte, meta_data=None):
     """
     return html
 
+# Inicialización de estados
 if 'lista_control' not in st.session_state:
     st.session_state.lista_control = []
 
@@ -441,7 +442,7 @@ with tab_dash:
             df_filtrado = df_filtrado[df_filtrado['Proveedor'] == filtro_proveedor_dash]
 
         st.markdown("<br>", unsafe_allow_html=True)
-        st.dataframe(df_filtrado, width='stretch', hide_index=True)
+        st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
 
 # ==========================================
 # 2. SOLAPA: CONTROL DE STOCK
@@ -471,7 +472,7 @@ with tab_control:
             with col1:
                 producto_seleccionado = st.selectbox("Buscar Producto", opciones_buscador)
             with col2:
-                stock_fisico_input = st.number_input("Stock Físico", min_value=0, step=1)
+                stock_fisico_input = st.number_input("Stock Físico", min_value=0.0, step=1.0)
                 
             st.markdown("<br>", unsafe_allow_html=True)
             agregar_btn = st.form_submit_button("Agregar a la tanda de hoy")
@@ -503,7 +504,7 @@ with tab_control:
             color = 'green' if val == 0 else 'red'
             return f'color: {color}; font-weight: bold;'
         
-        st.dataframe(df_control_actual.style.map(pintar_diferencia, subset=['Diferencia']), width='stretch')
+        st.dataframe(df_control_actual.style.map(pintar_diferencia, subset=['Diferencia']), use_container_width=True)
         
         st.markdown("<br>", unsafe_allow_html=True)
         excel_bytes_ctrl = convertir_df_a_excel(df_control_actual)
@@ -556,7 +557,7 @@ with tab_control:
 # ==========================================
 with tab_movimientos:
     st.markdown("### Recepción de Mercadería")
-    st.caption("Buscá el producto (ej. 'mandil tesaria glitter'), agregalo a la lista y ajustá la cantidad con botones de más y menos.")
+    st.caption("Buscá el producto, agregalo a la lista y ajustá la cantidad con los botones de más y menos.")
     st.markdown("<br>", unsafe_allow_html=True)
     
     col_mfech, col_mprov = st.columns(2)
@@ -584,7 +585,7 @@ with tab_movimientos:
     st.markdown("<br>", unsafe_allow_html=True)
 
     with st.container():
-        st.markdown("#### 🔍 Buscador Individual (Se queda agregado hasta que lo necesites)")
+        st.markdown("#### 🔍 Buscador Individual")
         
         if not df_productos.empty:
             opciones_skus_dict = {f"{row['Descripción']} | SKU: {row['SKU']} | Rubro: {row.get('Rubro', 'N/A')} | Subrubro: {row.get('Subrubro', 'N/A')}": row for _, row in df_productos.iterrows()}
@@ -604,12 +605,7 @@ with tab_movimientos:
                     rubro_val = str(datos_prod.get('Rubro', ''))
                     subrubro_val = str(datos_prod.get('Subrubro', ''))
 
-                    # Verificar si ya está en la lista para no duplicar, o agregarlo con cantidad 1
-                    ya_existe = False
-                    for item in st.session_state.tabla_recepcion_items:
-                        if item['SKU'] == sku_val:
-                            ya_existe = True
-                            break
+                    ya_existe = any(item['SKU'] == sku_val for item in st.session_state.tabla_recepcion_items)
                     
                     if not ya_existe:
                         st.session_state.tabla_recepcion_items.append({
@@ -632,7 +628,6 @@ with tab_movimientos:
     if not st.session_state.tabla_recepcion_items:
         st.info("ℹ️ La lista está vacía. Buscá y agregá productos utilizando el buscador de arriba.")
     else:
-        # Mostramos los elementos interactivos con botones de mas y menos
         indices_a_borrar = []
         for idx, item in enumerate(st.session_state.tabla_recepcion_items):
             with st.container():
@@ -643,7 +638,6 @@ with tab_movimientos:
                     tipo_actual = st.selectbox("Tipo", ["Ingreso (+)", "Egreso (-)"], index=0 if item['Tipo']=="Ingreso (+)" else 1, key=f"tipo_{idx}", label_visibility="collapsed")
                     st.session_state.tabla_recepcion_items[idx]['Tipo'] = tipo_actual
                 with cols_item[2]:
-                    # Botones de cantidad con + y -
                     c_menos, c_cant, c_mas = st.columns([1, 1.5, 1])
                     with c_menos:
                         if st.button("➖", key=f"btn_menos_{idx}"):
@@ -673,7 +667,6 @@ with tab_movimientos:
 
         st.markdown("<br>", unsafe_allow_html=True)
         
-        # Preparamos dataframe para descarga excel
         df_para_excel_recepcion = pd.DataFrame(st.session_state.tabla_recepcion_items)
         excel_bytes_rec = convertir_df_a_excel(df_para_excel_recepcion)
         st.download_button(
@@ -803,7 +796,7 @@ with tab_historial:
                 return f'color: {color}; font-weight: bold;'
                 
             df_final_hist_fisico = df_hist_mostrar.drop(columns=["ID", "Tanda_Label"])
-            st.dataframe(df_final_hist_fisico.style.map(pintar_historial, subset=['Diferencia']), width='stretch', hide_index=True)
+            st.dataframe(df_final_hist_fisico.style.map(pintar_historial, subset=['Diferencia']), use_container_width=True, hide_index=True)
             
             st.markdown("<br>", unsafe_allow_html=True)
             
@@ -913,7 +906,7 @@ with tab_historial:
             columnas_a_quitar = ["ID", "Mov_Label", "Conteo Inicial", "Control de Calidad", "Cotejo Remito", "Etiquetado SKU", "Ubicación Depósito"]
             df_final_hist_mov = df_mov_mostrar.drop(columns=[c for c in columnas_a_quitar if c in df_mov_mostrar.columns])
             
-            st.dataframe(df_final_hist_mov, width='stretch', hide_index=True)
+            st.dataframe(df_final_hist_mov, use_container_width=True, hide_index=True)
 
             st.markdown("<br>", unsafe_allow_html=True)
             
