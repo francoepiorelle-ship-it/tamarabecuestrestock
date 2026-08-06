@@ -58,7 +58,6 @@ def asegurar_base_datos():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             fecha TEXT,
             hora TEXT,
-            tipo TEXT,
             sku TEXT,
             producto TEXT,
             rubro TEXT,
@@ -201,7 +200,7 @@ def cargar_historial_movimientos():
     conexion = sqlite3.connect(DB_PATH)
     try:
         df = pd.read_sql("""
-            SELECT id AS ID, fecha AS Fecha, hora AS Hora, tipo AS Tipo, sku AS SKU, producto AS Producto, 
+            SELECT id AS ID, fecha AS Fecha, hora AS Hora, sku AS SKU, producto AS Producto, 
                    rubro AS Rubro, subrubro AS Subrubro, proveedor AS Proveedor, cantidad AS Cantidad, 
                    resp_conteo AS 'Conteo Inicial', resp_calidad AS 'Control de Calidad', 
                    resp_remito AS 'Cotejo Remito', resp_etiquetado AS 'Etiquetado SKU', 
@@ -211,7 +210,7 @@ def cargar_historial_movimientos():
         if not df.empty and 'Cantidad' in df.columns:
             df['Cantidad'] = df['Cantidad'].astype(int)
     except Exception:
-        df = pd.DataFrame(columns=["ID", "Fecha", "Hora", "Tipo", "SKU", "Producto", "Rubro", "Subrubro", "Proveedor", "Cantidad", "Conteo Inicial", "Control de Calidad", "Cotejo Remito", "Etiquetado SKU", "Ubicación Depósito", "Observación", "Remito"])
+        df = pd.DataFrame(columns=["ID", "Fecha", "Hora", "SKU", "Producto", "Rubro", "Subrubro", "Proveedor", "Cantidad", "Conteo Inicial", "Control de Calidad", "Cotejo Remito", "Etiquetado SKU", "Ubicación Depósito", "Observación", "Remito"])
     conexion.close()
     return df
 
@@ -222,52 +221,108 @@ def convertir_df_a_excel(df):
     processed_data = output.getvalue()
     return processed_data
 
-def convertir_df_a_html_impresion(df, titulo_reporte, meta_data=None):
-    meta_html = ""
-    if meta_data:
-        meta_html = f"""
-        <div class="meta-box">
-            <table class="meta-table">
-                <tr>
-                    <td><b>Fecha:</b> {meta_data.get('fecha', '-')}</td>
-                    <td><b>Proveedor (Nombre Fantasía):</b> {meta_data.get('proveedor', '-')}</td>
-                </tr>
-                <tr>
-                    <td><b>1) Conteo inicial:</b> {meta_data.get('c1', '-')}</td>
-                    <td><b>2) Control de calidad:</b> {meta_data.get('c2', '-')}</td>
-                </tr>
-                <tr>
-                    <td><b>3) Cotejo con remito:</b> {meta_data.get('c3', '-')}</td>
-                    <td><b>4) Etiquetado SKU:</b> {meta_data.get('c4', '-')}</td>
-                </tr>
-                <tr>
-                    <td colspan="2"><b>5) Ubicación depósito:</b> {meta_data.get('c5', '-')}</td>
-                </tr>
-            </table>
+def convertir_multiples_tandas_a_excel(lista_de_dfs_con_meta):
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+        for i, item in enumerate(lista_de_dfs_con_meta):
+            nombre_hoja = f"Tanda_{i+1}_{item['fecha'].replace('-', '')}_{item['hora'].replace(':', '')[:4]}"
+            nombre_hoja = "".join(c for c in nombre_hoja if c.isalnum() or c == '_')[:31]
+            item['df'].to_excel(writer, index=False, sheet_name=nombre_hoja)
+    return output.getvalue()
+
+def convertir_multiples_tandas_a_html_impresion(lista_de_tandas_info, titulo_reporte):
+    # lista_de_tandas_info contiene diccionarios con 'df', 'meta_data', 'titulo_tanda', 'fecha', etc.
+    # Ordenar por fecha y hora ascendente o descendente para que la separación mensual y diaria sea impecable
+    bloques_html = ""
+    mes_actual = None
+    dia_actual = None
+
+    for idx, item in enumerate(lista_de_tandas_info):
+        meta_data = item['meta_data']
+        df = item['df']
+        t_tanda = item['titulo_tanda']
+        fecha_str = item.get('fecha', '')
+        
+        # Extraer mes y día para los separadores jerárquicos
+        mes_str = fecha_str[:7] if len(fecha_str) >= 7 else "General"
+        
+        separador_jerarquico_html = ""
+        
+        # Si cambiamos de mes, agregamos un encabezado de Mes
+        if mes_str != mes_actual:
+            mes_actual = mes_str
+            dia_actual = None # Reiniciar día al cambiar de mes
+            separador_jerarquico_html += f"""
+            <div class="mes-separator">
+                <h2>📅 Mes: {mes_actual}</h2>
+            </div>
+            """
+            
+        # Si cambiamos de día dentro del mes, agregamos un encabezado de Día
+        if fecha_str != dia_actual:
+            dia_actual = fecha_str
+            separador_jerarquico_html += f"""
+            <div class="dia-separator">
+                <h3>📌 Día: {dia_actual}</h3>
+            </div>
+            """
+
+        meta_html = ""
+        if meta_data:
+            meta_html = f"""
+            <div class="meta-box">
+                <table class="meta-table">
+                    <tr>
+                        <td><b>Fecha:</b> {meta_data.get('fecha', '-')}</td>
+                        <td><b>Proveedor (Nombre Fantasía):</b> {meta_data.get('proveedor', '-')}</td>
+                    </tr>
+                    <tr>
+                        <td><b>1) Conteo inicial:</b> {meta_data.get('c1', '-')}</td>
+                        <td><b>2) Control de calidad:</b> {meta_data.get('c2', '-')}</td>
+                    </tr>
+                    <tr>
+                        <td><b>3) Cotejo con remito:</b> {meta_data.get('c3', '-')}</td>
+                        <td><b>4) Etiquetado SKU:</b> {meta_data.get('c4', '-')}</td>
+                    </tr>
+                    <tr>
+                        <td colspan="2"><b>5) Ubicación depósito:</b> {meta_data.get('c5', '-')}</td>
+                    </tr>
+                </table>
+            </div>
+            """
+
+        remito_html_seccion = ""
+        if meta_data and meta_data.get('remito_path'):
+            ruta_r = Path(meta_data.get('remito_path'))
+            if ruta_r.exists():
+                ext = ruta_r.suffix.lower()
+                if ext in ['.png', '.jpg', '.jpeg']:
+                    with open(ruta_r, "rb") as img_file:
+                        encoded_string = base64.b64encode(img_file.read()).decode('utf-8')
+                    mime_type = "image/jpeg" if ext in ['.jpg', '.jpeg'] else "image/png"
+                    remito_html_seccion = f"""
+                    <div class="remito-box">
+                        <b>Comprobante / Remito Adjunto de esta Tanda:</b><br><br>
+                        <img src="data:{mime_type};base64,{encoded_string}" class="remito-img"/>
+                    </div>
+                    """
+                else:
+                    remito_html_seccion = f"""
+                    <div class="remito-box">
+                        <b>Comprobante / Remito Adjunto de esta Tanda:</b> {ruta_r.name} (Archivo PDF)
+                    </div>
+                    """
+
+        page_break_style = "page-break-before: always;" if idx > 0 else ""
+        bloques_html += f"""
+        {separador_jerarquico_html}
+        <div class="tanda-container" style="{page_break_style}">
+            <h4 style="color: #00b89f; border-bottom: 2px solid #00b89f; padding-bottom: 4px; margin-top: 15px;">{t_tanda}</h4>
+            {meta_html}
+            {df.to_html(index=False, classes='data-table')}
+            {remito_html_seccion}
         </div>
         """
-
-    remito_html_seccion = ""
-    if meta_data and meta_data.get('remito_path'):
-        ruta_r = Path(meta_data.get('remito_path'))
-        if ruta_r.exists():
-            ext = ruta_r.suffix.lower()
-            if ext in ['.png', '.jpg', '.jpeg']:
-                with open(ruta_r, "rb") as img_file:
-                    encoded_string = base64.b64encode(img_file.read()).decode('utf-8')
-                mime_type = "image/jpeg" if ext in ['.jpg', '.jpeg'] else "image/png"
-                remito_html_seccion = f"""
-                <div class="remito-box">
-                    <b>Comprobante / Remito Adjunto de esta Tanda:</b><br><br>
-                    <img src="data:{mime_type};base64,{encoded_string}" class="remito-img"/>
-                </div>
-                """
-            else:
-                remito_html_seccion = f"""
-                <div class="remito-box">
-                    <b>Comprobante / Remito Adjunto de esta Tanda:</b> {ruta_r.name} (Archivo PDF)
-                </div>
-                """
 
     html = f"""
     <html>
@@ -276,24 +331,27 @@ def convertir_df_a_html_impresion(df, titulo_reporte, meta_data=None):
             <style>
                 @page {{ size: portrait; margin: 15mm; }}
                 body {{ font-family: Arial, sans-serif; margin: 0; color: #0f172a; }}
-                h2 {{ text-align: center; color: #00b89f; margin-bottom: 5px; }}
-                .meta-box {{ border: 1px solid #cbd5e1; background-color: #f8fafc; padding: 10px; border-radius: 6px; margin-bottom: 15px; }}
+                h2.main-title {{ text-align: center; color: #00b89f; margin-bottom: 5px; }}
+                .mes-separator {{ background-color: #0f172a; color: #ffffff; padding: 10px 15px; border-radius: 6px; margin-top: 25px; margin-bottom: 10px; page-break-after: avoid; }}
+                .mes-separator h2 {{ color: #ffffff; margin: 0; font-size: 18px; }}
+                .dia-separator {{ background-color: #e2e8f0; color: #0f172a; padding: 8px 12px; border-radius: 4px; margin-top: 15px; margin-bottom: 10px; page-break-after: avoid; border-left: 4px solid #00b89f; }}
+                .dia-separator h3 {{ margin: 0; font-size: 15px; }}
+                .meta-box {{ border: 1px solid #cbd5e1; background-color: #f8fafc; padding: 10px; border-radius: 6px; margin-bottom: 12px; }}
                 .meta-table {{ width: 100%; border-collapse: collapse; }}
                 .meta-table td {{ padding: 4px 8px; font-size: 13px; border: none; }}
-                .remito-box {{ margin-top: 15px; padding: 10px; border: 1px dashed #00b89f; background-color: #f0fdf4; font-size: 13px; border-radius: 6px; page-break-inside: avoid; text-align: center; }}
+                .remito-box {{ margin-top: 12px; padding: 10px; border: 1px dashed #00b89f; background-color: #f0fdf4; font-size: 13px; border-radius: 6px; page-break-inside: avoid; text-align: center; }}
                 .remito-img {{ max-width: 100%; height: auto; border: 1px solid #cbd5e1; border-radius: 4px; margin-top: 10px; }}
-                table.data-table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }}
+                table.data-table {{ width: 100%; border-collapse: collapse; margin-top: 8px; }}
                 table.data-table th, table.data-table td {{ border: 1px solid #cbd5e1; padding: 6px 10px; text-align: left; font-size: 12px; }}
                 table.data-table th {{ background-color: #f1f5f9; color: #0f172a; }}
                 table.data-table tr:nth-child(even) {{ background-color: #f8fafc; }}
+                .tanda-container {{ margin-bottom: 25px; }}
             </style>
         </head>
         <body>
-            <h2>GestionTamaraB - {titulo_reporte}</h2>
+            <h2 class="main-title">GestionTamaraB - {titulo_reporte}</h2>
             <p style="text-align: center; font-size: 12px; color: #64748b;"><b>Emitido:</b> {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-            {meta_html}
-            {df.to_html(index=False, classes='data-table')}
-            {remito_html_seccion}
+            {bloques_html}
             <script>
                 window.onload = function() {{ window.print(); }}
             </script>
@@ -603,7 +661,7 @@ with tab_control:
 # ==========================================
 with tab_movimientos:
     st.markdown("### Recepción de Mercadería")
-    st.caption("Buscá el producto, agregalo a la lista y ajustá la cantidad con los botones de más y menos.")
+    st.caption("Completá obligatoriamente la fecha, el proveedor y todos los responsables del proceso antes de guardar.")
     st.markdown("<br>", unsafe_allow_html=True)
     
     col_mfech, col_mprov = st.columns(2)
@@ -612,18 +670,18 @@ with tab_movimientos:
     with col_mprov:
         proveedor_recepcion_global = st.selectbox("📦 Proveedor (Nombre Fantasía)", lista_nombres_fantasia, key="prov_rec_global")
 
-    st.markdown("#### 👥 Responsables del Proceso")
+    st.markdown("#### 👥 Responsables del Proceso *(Obligatorios)*")
     r_col1, r_col2, r_col3, r_col4, r_col5 = st.columns(5)
     with r_col1:
-        resp_conteo = st.text_input("1) Conteo inicial", placeholder="Nombre")
+        resp_conteo = st.text_input("1) Conteo inicial *", placeholder="Nombre")
     with r_col2:
-        resp_calidad = st.text_input("2) Control de calidad", placeholder="Nombre")
+        resp_calidad = st.text_input("2) Control de calidad *", placeholder="Nombre")
     with r_col3:
-        resp_remito = st.text_input("3) Cotejo con remito", placeholder="Nombre")
+        resp_remito = st.text_input("3) Cotejo con remito *", placeholder="Nombre")
     with r_col4:
-        resp_etiquetado = st.text_input("4) Etiquetado SKU", placeholder="Nombre")
+        resp_etiquetado = st.text_input("4) Etiquetado SKU *", placeholder="Nombre")
     with r_col5:
-        resp_ubicacion = st.text_input("5) Ubicación depósito", placeholder="Nombre")
+        resp_ubicacion = st.text_input("5) Ubicación depósito *", placeholder="Nombre")
 
     archivo_remito_subido = st.file_uploader("📎 Adjuntar Remito General (Foto o PDF)", type=["png", "jpg", "jpeg", "pdf"], key="remito_masivo_subida")
 
@@ -658,7 +716,6 @@ with tab_movimientos:
                             "Producto": desc_val,
                             "Rubro": rubro_val,
                             "Subrubro": subrubro_val,
-                            "Tipo": "Ingreso (+)",
                             "Cantidad": 1,
                             "Observación": ""
                         })
@@ -668,7 +725,7 @@ with tab_movimientos:
                         st.warning("El producto ya se encuentra en la lista.")
 
     st.markdown("<br><hr><br>", unsafe_allow_html=True)
-    st.markdown("#### 📋 Lista de Productos a Recibir (Control de Cantidades y Movimiento)")
+    st.markdown("#### 📋 Lista de Productos a Recibir (Control de Cantidades)")
 
     if not st.session_state.tabla_recepcion_items:
         st.info("ℹ️ La lista está vacía. Buscá y agregá productos utilizando el buscador de arriba.")
@@ -676,13 +733,10 @@ with tab_movimientos:
         indices_a_borrar = []
         for idx, item in enumerate(st.session_state.tabla_recepcion_items):
             with st.container():
-                cols_item = st.columns([2.5, 1, 1.2, 1, 0.8, 0.6])
+                cols_item = st.columns([3, 1.5, 1.5, 0.8])
                 with cols_item[0]:
                     st.markdown(f"<b>{item['Producto']}</b><br><span style='font-size:11px; color:#64748b;'>SKU: {item['SKU']} | {item['Rubro']}</span>", unsafe_allow_html=True)
                 with cols_item[1]:
-                    tipo_actual = st.selectbox("Tipo", ["Ingreso (+)", "Egreso (-)"], index=0 if item['Tipo']=="Ingreso (+)" else 1, key=f"tipo_{idx}", label_visibility="collapsed")
-                    st.session_state.tabla_recepcion_items[idx]['Tipo'] = tipo_actual
-                with cols_item[2]:
                     c_menos, c_cant, c_mas = st.columns([1, 1.5, 1])
                     with c_menos:
                         if st.button("➖", key=f"btn_menos_{idx}"):
@@ -695,12 +749,10 @@ with tab_movimientos:
                         if st.button("➕", key=f"btn_mas_{idx}"):
                             st.session_state.tabla_recepcion_items[idx]['Cantidad'] += 1
                             st.rerun()
-                with cols_item[3]:
+                with cols_item[2]:
                     obs_val = st.text_input("Obs", value=item['Observación'], placeholder="Observación...", key=f"obs_{idx}", label_visibility="collapsed")
                     st.session_state.tabla_recepcion_items[idx]['Observación'] = obs_val
-                with cols_item[4]:
-                    st.markdown(f"<span style='font-size: 12px; color: #64748b; line-height: 2.5;'>Total: <b>{int(item['Cantidad'])}</b></span>", unsafe_allow_html=True)
-                with cols_item[5]:
+                with cols_item[3]:
                     if st.button("🗑️", key=f"del_item_{idx}"):
                         indices_a_borrar.append(idx)
                 st.markdown("<hr style='margin: 5px 0; border-color: #f1f5f9;'>", unsafe_allow_html=True)
@@ -726,41 +778,43 @@ with tab_movimientos:
         col_acc1, col_acc2 = st.columns([2, 1])
         with col_acc1:
             if st.button("💾 Guardar Recepción Completa en el Historial"):
-                ruta_guardada = ""
-                if archivo_remito_subido is not None:
-                    timestamp_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                    nombre_archivo_seguro = f"remito_{timestamp_str}_{archivo_remito_subido.name}"
-                    ruta_completa = REMITOS_DIR / nombre_archivo_seguro
-                    with open(ruta_completa, "wb") as f:
-                        f.write(archivo_remito_subido.getbuffer())
-                    ruta_guardada = str(ruta_completa)
+                if not resp_conteo or not resp_calidad or not resp_remito or not resp_etiquetado or not resp_ubicacion:
+                    st.error("⚠️ No se puede continuar: Debes completar todos los casilleros de responsables del proceso (1 al 5).")
+                else:
+                    ruta_guardada = ""
+                    if archivo_remito_subido is not None:
+                        timestamp_str = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+                        nombre_archivo_seguro = f"remito_{timestamp_str}_{archivo_remito_subido.name}"
+                        ruta_completa = REMITOS_DIR / nombre_archivo_seguro
+                        with open(ruta_completa, "wb") as f:
+                            f.write(archivo_remito_subido.getbuffer())
+                        ruta_guardada = str(ruta_completa)
 
-                hora_arg = datetime.datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).strftime("%H:%M:%S")
-                conexion = sqlite3.connect(DB_PATH)
-                cursor = conexion.cursor()
-                
-                lista_para_etiquetas = []
+                    hora_arg = datetime.datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).strftime("%H:%M:%S")
+                    conexion = sqlite3.connect(DB_PATH)
+                    cursor = conexion.cursor()
+                    
+                    lista_para_etiquetas = []
 
-                for item in st.session_state.tabla_recepcion_items:
-                    cursor.execute("""
-                        INSERT INTO movimientos_stock (fecha, hora, tipo, sku, producto, rubro, subrubro, proveedor, cantidad, resp_conteo, resp_calidad, resp_remito, resp_etiquetado, resp_ubicacion, observacion, remito_archivo)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """, (str(fecha_recepcion_dia), hora_arg, item['Tipo'], item['SKU'], item['Producto'], item['Rubro'], item['Subrubro'], proveedor_recepcion_global, int(item['Cantidad']), resp_conteo, resp_calidad, resp_remito, resp_etiquetado, resp_ubicacion, item['Observación'], ruta_guardada))
+                    for item in st.session_state.tabla_recepcion_items:
+                        cursor.execute("""
+                            INSERT INTO movimientos_stock (fecha, hora, sku, producto, rubro, subrubro, proveedor, cantidad, resp_conteo, resp_calidad, resp_remito, resp_etiquetado, resp_ubicacion, observacion, remito_archivo)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """, (str(fecha_recepcion_dia), hora_arg, item['SKU'], item['Producto'], item['Rubro'], item['Subrubro'], proveedor_recepcion_global, int(item['Cantidad']), resp_conteo, resp_calidad, resp_remito, resp_etiquetado, resp_ubicacion, item['Observación'], ruta_guardada))
 
-                    if "Ingreso" in item['Tipo']:
                         lista_para_etiquetas.append({
                             "Producto": item['Producto'],
                             "SKU": item['SKU'],
                             "Cantidad": int(item['Cantidad'])
                         })
 
-                conexion.commit()
-                conexion.close()
+                    conexion.commit()
+                    conexion.close()
 
-                st.session_state.ultimo_movimiento_guardado = lista_para_etiquetas
-                st.session_state.tabla_recepcion_items = []
-                st.success(f"¡Recepción completa guardada exitosamente a las {hora_arg}!")
-                st.rerun()
+                    st.session_state.ultimo_movimiento_guardado = lista_para_etiquetas
+                    st.session_state.tabla_recepcion_items = []
+                    st.success(f"¡Recepción completa guardada exitosamente a las {hora_arg}!")
+                    st.rerun()
         with col_acc2:
             if st.button("🧹 Vaciar Lista"):
                 st.session_state.tabla_recepcion_items = []
@@ -801,76 +855,102 @@ with tab_movimientos:
 # 4. SOLAPA: HISTORIAL Y AUDITORÍAS
 # ==========================================
 with tab_historial:
-    st.markdown("### Historial y Auditorías Separadas por Tandas")
-    st.caption("Seleccioná una tanda específica o todas las planillas, y descargalas en Excel o en formato listo para imprimir en hoja vertical con su cuadro de cabecera.")
+    st.markdown("### Historial y Auditorías Avanzadas")
+    st.caption("Seleccioná tandas específicas, por día completo o por mes completo. Los reportes separan limpiamente cada planilla por meses y días.")
     st.markdown("<br>", unsafe_allow_html=True)
     
-    tipo_historial_seleccionado = st.radio("Seleccioná el tipo de historial a visualizar:", ["Control de Stock", "Recepción / Movimientos de Mercadería"], horizontal=True)
+    tipo_historial_seleccionado = st.radio("Seleccioná el tipo de historial a visualizar:", ["Control de Stock", "Recepción de Mercadería"], horizontal=True)
     st.markdown("<br>", unsafe_allow_html=True)
 
     if tipo_historial_seleccionado == "Control de Stock":
-        st.markdown("#### 📋 Historial de Controles de Stock (por Tandas / Horas)")
+        st.markdown("#### 📋 Historial de Controles de Stock")
         df_historial = cargar_historial()
         
         if df_historial.empty:
             st.info("No hay controles de stock registrados todavía.")
         else:
             df_historial['Tanda_Label'] = df_historial.apply(lambda r: f"Fecha: {r['Fecha']} | Hora: {r['Hora']} | Resp: {r['Responsable']}", axis=1)
-            tandas_fisicas_disponibles = ["Todas las tandas (Historial Completo)"] + list(df_historial['Tanda_Label'].unique())
             
-            filtro_tanda_fisica = st.selectbox("🔍 Seleccionar Planilla / Tanda a visualizar o exportar:", tandas_fisicas_disponibles)
+            modo_filtro_c = st.radio("Modo de selección:", ["Seleccionar por Tanda(s) específica(s)", "Seleccionar por Día completo", "Seleccionar por Mes completo"], horizontal=True, key="modo_c_stock")
             
-            if filtro_tanda_fisica == "Todas las tandas (Historial Completo)":
-                df_hist_mostrar = df_historial
-                titulo_doc = "Historial_Completo_Control_Stock"
-                meta_info = None
+            tandas_seleccionadas_f = []
+            if modo_filtro_c == "Seleccionar por Tanda(s) específica(s)":
+                tandas_fisicas_disponibles = list(df_historial['Tanda_Label'].unique())
+                seleccion_checks = st.multiselect("🔍 Seleccioná una o varias tandas:", tandas_fisicas_disponibles)
+                tandas_seleccionadas_f = seleccion_checks
+            elif modo_filtro_c == "Seleccionar por Día completo":
+                dias_disp = sorted(df_historial['Fecha'].unique().tolist(), reverse=True)
+                dia_elegido = st.selectbox("📅 Seleccioná el Día:", dias_disp)
+                if dia_elegido:
+                    tandas_seleccionadas_f = df_historial[df_historial['Fecha'] == dia_elegido]['Tanda_Label'].unique().tolist()
             else:
-                df_hist_mostrar = df_historial[df_historial['Tanda_Label'] == filtro_tanda_fisica]
-                titulo_doc = f"Control_Stock_{filtro_tanda_fisica.replace(' | ', '_').replace(':', '')}"
-                fila_meta = df_hist_mostrar.iloc[0] if not df_hist_mostrar.empty else None
-                meta_info = {
-                    "fecha": f"{fila_meta['Fecha']} | Hora: {fila_meta['Hora']}",
-                    "proveedor": "Control Físico Interno",
-                    "c1": fila_meta['Responsable'],
-                    "c2": "-", "c3": "-", "c4": "-", "c5": "-"
-                } if fila_meta is not None else None
+                df_historial['Mes'] = df_historial['Fecha'].astype(str).str[:7]
+                meses_disp = sorted(df_historial['Mes'].unique().tolist(), reverse=True)
+                mes_elegido = st.selectbox("🗓️ Seleccioná el Mes (YYYY-MM):", meses_disp)
+                if mes_elegido:
+                    tandas_seleccionadas_f = df_historial[df_historial['Mes'] == mes_elegido]['Tanda_Label'].unique().tolist()
 
-            def pintar_historial(val):
-                if pd.isna(val): return ''
-                color = 'green' if val == 0 else 'red'
-                return f'color: {color}; font-weight: bold;'
+            if not tandas_seleccionadas_f:
+                st.info("ℹ️ Seleccioná al menos una tanda, día o mes para ver las planillas.")
+            else:
+                df_hist_mostrar = df_historial[df_historial['Tanda_Label'].isin(tandas_seleccionadas_f)].sort_values(by=['Fecha', 'Hora'], ascending=[True, True])
                 
-            df_final_hist_fisico = df_hist_mostrar.drop(columns=["ID", "Tanda_Label"])
-            st.dataframe(df_final_hist_fisico.style.map(pintar_historial, subset=['Diferencia']), use_container_width=True, hide_index=True)
-            
-            st.markdown("<br>", unsafe_allow_html=True)
-            
-            col_exp1, col_exp2 = st.columns(2)
-            with col_exp1:
-                excel_bytes_hist_f = convertir_df_a_excel(df_final_hist_fisico)
-                st.download_button(
-                    label="📥 Descargar Planilla Seleccionada en Excel (.xlsx)",
-                    data=excel_bytes_hist_f,
-                    file_name=f"{titulo_doc}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="download_excel_hist_fisico"
-                )
-            with col_exp2:
-                html_impresion_f = convertir_df_a_html_impresion(df_final_hist_fisico, f"Control de Stock - {filtro_tanda_fisica}", meta_info)
-                st.download_button(
-                    label="🖨️ Descargar / Imprimir Reporte en PDF (Hoja Vertical)",
-                    data=html_impresion_f,
-                    file_name=f"{titulo_doc}.html",
-                    mime="text/html",
-                    key="download_pdf_hist_fisico"
-                )
-            
+                def pintar_historial(val):
+                    if pd.isna(val): return ''
+                    color = 'green' if val == 0 else 'red'
+                    return f'color: {color}; font-weight: bold;'
+                    
+                df_final_hist_fisico = df_hist_mostrar.drop(columns=["ID", "Tanda_Label", "Mes"] if "Mes" in df_hist_mostrar.columns else ["ID", "Tanda_Label"])
+                st.dataframe(df_final_hist_fisico.style.map(pintar_historial, subset=['Diferencia']), use_container_width=True, hide_index=True)
+                
+                st.markdown("<br>", unsafe_allow_html=True)
+                
+                lista_tandas_para_exportar = []
+                for tanda_lbl in tandas_seleccionadas_f:
+                    sub_df = df_historial[df_historial['Tanda_Label'] == tanda_lbl]
+                    fila_m = sub_df.iloc[0]
+                    lista_tandas_para_exportar.append({
+                        "df": sub_df.drop(columns=["ID", "Tanda_Label", "Mes"] if "Mes" in sub_df.columns else ["ID", "Tanda_Label"]),
+                        "fecha": fila_m['Fecha'],
+                        "hora": fila_m['Hora'],
+                        "meta_data": {
+                            "fecha": f"{fila_m['Fecha']} | Hora: {fila_m['Hora']}",
+                            "proveedor": "Control Físico Interno",
+                            "c1": fila_m['Responsable'],
+                            "c2": "-", "c3": "-", "c4": "-", "c5": "-"
+                        },
+                        "titulo_tanda": f"Control de Stock - {tanda_lbl}"
+                    })
+                
+                # Ordenar la lista para el PDF por fecha y hora ascendente
+                lista_tandas_para_exportar = sorted(lista_tandas_para_exportar, key=lambda x: (x['fecha'], x['hora']))
+
+                col_exp1, col_exp2 = st.columns(2)
+                with col_exp1:
+                    excel_bytes_multi = convertir_multiples_tandas_a_excel(lista_tandas_para_exportar)
+                    st.download_button(
+                        label="📥 Descargar Planillas Seleccionadas en Excel (.xlsx)",
+                        data=excel_bytes_multi,
+                        file_name=f"control_stock_seleccion_{datetime.date.today()}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="download_excel_hist_fisico_multi"
+                    )
+                with col_exp2:
+                    html_impresion_multi = convertir_multiples_tandas_a_html_impresion(lista_tandas_para_exportar, "Reporte Consolidado - Control de Stock")
+                    st.download_button(
+                        label="🖨️ Imprimir / Descargar Reporte PDF con Separación de Meses y Días",
+                        data=html_impresion_multi,
+                        file_name=f"control_stock_reporte_{datetime.date.today()}.html",
+                        mime="text/html",
+                        key="download_pdf_hist_fisico_multi"
+                    )
+
             st.markdown("<br>", unsafe_allow_html=True)
             with st.expander("🗑️ Zona de administración: Eliminar tandas o registros específicos"):
-                opcion_eliminacion = st.radio("¿Qué deseas eliminar?", ["Un ítem específico de una tanda", "Una tanda entera (por hora)", "Un día entero completo"], key="del_fisico")
+                opcion_eliminacion = st.radio("¿Qué deseas eliminar?", ["Un ítem específico", "Una tanda entera (por hora)", "Un día entero completo"], key="del_fisico")
                 
-                if opcion_eliminacion == "Un ítem específico de una tanda":
-                    opciones_borrar_historial = [f"{row['ID']} - [{row['Fecha']} {row['Hora']}] {row['Producto']}" for _, row in df_hist_mostrar.iterrows()]
+                if opcion_eliminacion == "Un ítem específico":
+                    opciones_borrar_historial = [f"{row['ID']} - [{row['Fecha']} {row['Hora']}] {row['Producto']}" for _, row in df_historial.iterrows()]
                     opciones_borrar_historial.insert(0, "Seleccione un registro...")
                     
                     col_del1, col_del2 = st.columns([3, 1])
@@ -918,92 +998,103 @@ with tab_historial:
                             st.rerun()
 
     else:
-        st.markdown("#### 📦 Historial de Recepciones y Movimientos de Mercadería")
+        st.markdown("#### 📦 Historial de Recepciones de Mercadería")
         df_mov = cargar_historial_movimientos()
         
         if df_mov.empty:
-            st.info("No hay recepciones ni movimientos registrados todavía.")
+            st.info("No hay recepciones registradas todavía.")
         else:
-            df_mov['Mov_Label'] = df_mov.apply(lambda r: f"Fecha: {r['Fecha']} | Hora: {r['Hora']} | Proveedor (Fantasía): {r['Proveedor']}", axis=1)
-            movs_disponibles = ["Todas las recepciones (Historial Completo)"] + list(df_mov['Mov_Label'].unique())
+            df_mov['Mov_Label'] = df_mov.apply(lambda r: f"Fecha: {r['Fecha']} | Hora: {r['Hora']} | Proveedor: {r['Proveedor']}", axis=1)
             
-            filtro_mov_tanda = st.selectbox("🔍 Seleccionar Planilla / Recepción a visualizar o exportar:", movs_disponibles)
+            modo_filtro_m = st.radio("Modo de selección:", ["Seleccionar por Recepción(es) específica(s)", "Seleccionar por Día completo", "Seleccionar por Mes completo"], horizontal=True, key="modo_m_stock")
             
-            ruta_remito_actual = None
-            if filtro_mov_tanda == "Todas las recepciones (Historial Completo)":
-                df_mov_mostrar = df_mov
-                titulo_doc_m = "Historial_Completo_Recepciones"
-                meta_info_m = None
+            tandas_seleccionadas_m = []
+            if modo_filtro_m == "Seleccionar por Recepción(es) específica(s)":
+                movs_disponibles = list(df_mov['Mov_Label'].unique())
+                seleccion_checks_m = st.multiselect("🔍 Seleccioná una o varias recepciones:", movs_disponibles)
+                tandas_seleccionadas_m = seleccion_checks_m
+            elif modo_filtro_m == "Seleccionar por Día completo":
+                dias_disp_m = sorted(df_mov['Fecha'].unique().tolist(), reverse=True)
+                dia_elegido_m = st.selectbox("📅 Seleccioná el Día:", dias_disp_m)
+                if dia_elegido_m:
+                    tandas_seleccionadas_m = df_mov[df_mov['Fecha'] == dia_elegido_m]['Mov_Label'].unique().tolist()
             else:
-                df_mov_mostrar = df_mov[df_mov['Mov_Label'] == filtro_mov_tanda]
-                titulo_doc_m = f"Recepcion_{filtro_mov_tanda.replace(' | ', '_').replace(':', '')}"
+                df_mov['Mes'] = df_mov['Fecha'].astype(str).str[:7]
+                meses_disp_m = sorted(df_mov['Mes'].unique().tolist(), reverse=True)
+                mes_elegido_m = st.selectbox("🗓️ Seleccioná el Mes (YYYY-MM):", meses_disp_m)
+                if mes_elegido_m:
+                    tandas_seleccionadas_m = df_mov[df_mov['Mes'] == mes_elegido_m]['Mov_Label'].unique().tolist()
+
+            if not tandas_seleccionadas_m:
+                st.info("ℹ️ Seleccioná al menos una recepción, día o mes para ver las planillas.")
+            else:
+                df_mov_mostrar = df_mov[df_mov['Mov_Label'].isin(tandas_seleccionadas_m)].sort_values(by=['Fecha', 'Hora'], ascending=[True, True])
+
+                columnas_a_quitar = ["ID", "Mov_Label", "Fecha", "Hora", "Conteo Inicial", "Control de Calidad", "Cotejo Remito", "Etiquetado SKU", "Ubicación Depósito", "Remito", "Mes"]
+                df_final_hist_mov = df_mov_mostrar.drop(columns=[c for c in columnas_a_quitar if c in df_mov_mostrar.columns])
                 
-                fila_meta_m = df_mov_mostrar.iloc[0] if not df_mov_mostrar.empty else None
-                
+                st.dataframe(df_final_hist_mov, use_container_width=True, hide_index=True)
+
+                lista_recepciones_para_exportar = []
                 conexion = sqlite3.connect(DB_PATH)
                 cursor = conexion.cursor()
-                cursor.execute("SELECT remito_archivo FROM movimientos_stock WHERE fecha = ? AND hora = ? AND proveedor = ? LIMIT 1", (fila_meta_m['Fecha'], fila_meta_m['Hora'], fila_meta_m['Proveedor']))
-                res_rem = cursor.fetchone()
+
+                for tanda_lbl in tandas_seleccionadas_m:
+                    sub_df = df_mov[df_mov['Mov_Label'] == tanda_lbl]
+                    fila_m = sub_df.iloc[0]
+                    
+                    cursor.execute("SELECT remito_archivo FROM movimientos_stock WHERE fecha = ? AND hora = ? AND proveedor = ? LIMIT 1", (fila_m['Fecha'], fila_m['Hora'], fila_m['Proveedor']))
+                    res_rem = cursor.fetchone()
+                    ruta_rem_val = res_rem[0] if res_rem else None
+
+                    cols_q_sub = ["ID", "Mov_Label", "Fecha", "Hora", "Conteo Inicial", "Control de Calidad", "Cotejo Remito", "Etiquetado SKU", "Ubicación Depósito", "Remito", "Mes"]
+                    df_sub_limpio = sub_df.drop(columns=[c for c in cols_q_sub if c in sub_df.columns])
+
+                    lista_recepciones_para_exportar.append({
+                        "df": df_sub_limpio,
+                        "fecha": fila_m['Fecha'],
+                        "hora": fila_m['Hora'],
+                        "meta_data": {
+                            "fecha": f"{fila_m['Fecha']} | Hora: {fila_m['Hora']}",
+                            "proveedor": fila_m['Proveedor'],
+                            "c1": fila_m['Conteo Inicial'],
+                            "c2": fila_m['Control de Calidad'],
+                            "c3": fila_m['Cotejo Remito'],
+                            "c4": fila_m['Etiquetado SKU'],
+                            "c5": fila_m['Ubicación Depósito'],
+                            "remito_path": ruta_rem_val
+                        },
+                        "titulo_tanda": f"Recepción - {tanda_lbl}"
+                    })
                 conexion.close()
-                if res_rem and res_rem[0]:
-                    ruta_remito_actual = res_rem[0]
-
-                meta_info_m = {
-                    "fecha": f"{fila_meta_m['Fecha']} | Hora: {fila_meta_m['Hora']}",
-                    "proveedor": fila_meta_m['Proveedor'],
-                    "c1": fila_meta_m['Conteo Inicial'],
-                    "c2": fila_meta_m['Control de Calidad'],
-                    "c3": fila_meta_m['Cotejo Remito'],
-                    "c4": fila_meta_m['Etiquetado SKU'],
-                    "c5": fila_meta_m['Ubicación Depósito'],
-                    "remito_path": ruta_remito_actual
-                } if fila_meta_m is not None else None
-
-            columnas_a_quitar = ["ID", "Mov_Label", "Fecha", "Hora", "Conteo Inicial", "Control de Calidad", "Cotejo Remito", "Etiquetado SKU", "Ubicación Depósito", "Remito"]
-            df_final_hist_mov = df_mov_mostrar.drop(columns=[c for c in columnas_a_quitar if c in df_mov_mostrar.columns])
-            
-            st.dataframe(df_final_hist_mov, use_container_width=True, hide_index=True)
-
-            if filtro_mov_tanda != "Todas las recepciones (Historial Completo)" and ruta_remito_actual and Path(ruta_remito_actual).exists():
-                st.markdown("<br>", unsafe_allow_html=True)
-                st.info(f"📎 **Comprobante / Remito adjunto de esta recepción:** `{Path(ruta_remito_actual).name}`")
                 
-                if Path(ruta_remito_actual).suffix.lower() in ['.png', '.jpg', '.jpeg']:
-                    st.image(ruta_remito_actual, caption="Imagen del Remito Adjunto", use_container_width=True)
+                # Ordenar la lista para el PDF por fecha y hora ascendente
+                lista_recepciones_para_exportar = sorted(lista_recepciones_para_exportar, key=lambda x: (x['fecha'], x['hora']))
 
-                with open(ruta_remito_actual, "rb") as file_rem:
+                st.markdown("<br>", unsafe_allow_html=True)
+                
+                col_mexp1, col_mexp2 = st.columns(2)
+                with col_mexp1:
+                    excel_bytes_multi_m = convertir_multiples_tandas_a_excel(lista_recepciones_para_exportar)
                     st.download_button(
-                        label="📥 Descargar Archivo de Remito Adjunto",
-                        data=file_rem,
-                        file_name=Path(ruta_remito_actual).name,
-                        mime="application/octet-stream",
-                        key="btn_dl_remito_tanda"
+                        label="📥 Descargar Planillas Seleccionadas en Excel (.xlsx)",
+                        data=excel_bytes_multi_m,
+                        file_name=f"recepciones_seleccion_{datetime.date.today()}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        key="download_excel_hist_mov_multi"
+                    )
+                with col_mexp2:
+                    html_impresion_multi_m = convertir_multiples_tandas_a_html_impresion(lista_recepciones_para_exportar, "Reporte Consolidado - Recepción de Mercadería")
+                    st.download_button(
+                        label="🖨️ Imprimir / Descargar Reporte PDF con Separación de Meses y Días",
+                        data=html_impresion_multi_m,
+                        file_name=f"recepciones_reporte_{datetime.date.today()}.html",
+                        mime="text/html",
+                        key="download_pdf_hist_mov_multi"
                     )
 
             st.markdown("<br>", unsafe_allow_html=True)
-            
-            col_mexp1, col_mexp2 = st.columns(2)
-            with col_mexp1:
-                excel_bytes_hist_m = convertir_df_a_excel(df_final_hist_mov)
-                st.download_button(
-                    label="📥 Descargar Planilla Seleccionada en Excel (.xlsx)",
-                    data=excel_bytes_hist_m,
-                    file_name=f"{titulo_doc_m}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="download_excel_hist_mov"
-                )
-            with col_mexp2:
-                html_impresion_m = convertir_df_a_html_impresion(df_final_hist_mov, f"Recepción de Mercadería - {filtro_mov_tanda}", meta_info_m)
-                st.download_button(
-                    label="🖨️ Descargar / Imprimir Reporte en PDF (Hoja Vertical)",
-                    data=html_impresion_m,
-                    file_name=f"{titulo_doc_m}.html",
-                    mime="text/html",
-                    key="download_pdf_hist_mov"
-                )
-
-            st.markdown("<br>", unsafe_allow_html=True)
-            with st.expander("📎 Ver o descargar todos los remitos históricos"):
+            with st.expander("📎 Ver o descargar remitos históricos"):
                 df_con_remito = df_mov[df_mov['Remito'].notna() & (df_mov['Remito'] != "")]
                 if df_con_remito.empty:
                     st.info("No hay remitos adjuntos en los registros actuales.")
