@@ -9,7 +9,7 @@ import base64
 
 # Configuración inicial de la página
 st.set_page_config(
-    page_title="GestionTamaraB - Control de Stock",
+    page_title="GestíonTamaraB - Control de Stock",
     page_icon="📦",
     layout="wide",
     initial_sidebar_state="collapsed"
@@ -72,13 +72,6 @@ def asegurar_base_datos():
             resp_ubicacion TEXT,
             observacion TEXT,
             remito_archivo TEXT,
-            fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS proveedores_extra (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            nombre TEXT UNIQUE,
             fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
@@ -173,17 +166,21 @@ def cargar_datos():
     conexion.close()
     return df
 
-def obtener_lista_proveedores(df_prod):
-    asegurar_base_datos()
-    conexion = sqlite3.connect(DB_PATH)
-    cursor = conexion.cursor()
-    cursor.execute("SELECT nombre FROM proveedores_extra")
-    provin_extra = [row[0] for row in cursor.fetchall()]
-    conexion.close()
-    
-    prov_excel = df_prod['Proveedor'].dropna().unique().tolist() if not df_prod.empty and 'Proveedor' in df_prod.columns else []
-    todos = sorted(list(set(list(prov_excel) + list(provin_extra))))
-    return todos
+def obtener_lista_nombres_fantasia():
+    ruta_prov_excel = BASE_DIR / "proveedores.xlsx"
+    nombres = []
+    if ruta_prov_excel.exists():
+        try:
+            df_p = pd.read_excel(ruta_prov_excel)
+            df_p.columns = df_p.columns.str.strip()
+            if "Nombre Fantasia" in df_p.columns:
+                nombres = df_p["Nombre Fantasia"].dropna().astype(str).str.strip().unique().tolist()
+                nombres = [n for n in nombres if n and n.lower() != 'nan']
+        except Exception as e:
+            print(f"Error leyendo proveedores.xlsx: {e}")
+    if not nombres:
+        nombres = ["Sin Proveedor / General"]
+    return sorted(nombres)
 
 def cargar_historial():
     conexion = sqlite3.connect(DB_PATH)
@@ -233,7 +230,7 @@ def convertir_df_a_html_impresion(df, titulo_reporte, meta_data=None):
             <table class="meta-table">
                 <tr>
                     <td><b>Fecha:</b> {meta_data.get('fecha', '-')}</td>
-                    <td><b>Proveedor:</b> {meta_data.get('proveedor', '-')}</td>
+                    <td><b>Proveedor (Nombre Fantasía):</b> {meta_data.get('proveedor', '-')}</td>
                 </tr>
                 <tr>
                     <td><b>1) Conteo inicial:</b> {meta_data.get('c1', '-')}</td>
@@ -430,12 +427,12 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 df_productos = cargar_datos()
-lista_proveedores_total = obtener_lista_proveedores(df_productos)
+lista_nombres_fantasia = obtener_lista_nombres_fantasia()
 
 # --- CABECERA SUPERIOR ---
 col_head1, col_head2 = st.columns([5, 1])
 with col_head1:
-    st.title("📦 GestionTamaraB - Panel de Control")
+    st.title("📦 GestíonTamaraB - Panel de Control")
 with col_head2:
     st.markdown("<br>", unsafe_allow_html=True)
     if st.button("🚪 Cerrar Sesión"):
@@ -456,42 +453,7 @@ tab_dash, tab_control, tab_movimientos, tab_historial = st.tabs([
 # 1. SOLAPA: DASHBOARD GENERAL
 # ==========================================
 with tab_dash:
-    st.caption("ℹ️ Vista general del estado actual de la mercadería sincronizada y gestión general de proveedores.")
-    st.markdown("<br>", unsafe_allow_html=True)
-    
-    with st.expander("🏢 Gestión de Proveedores (Agregar o Ver Proveedores Nuevos)", expanded=False):
-        st.markdown("#### Agregar nuevo proveedor manualmente")
-        st.caption("Si un proveedor no aparece en la lista de recepción, podés darlo de alta aquí para que esté disponible de inmediato.")
-        
-        with st.form("form_nuevo_proveedor", clear_on_submit=True):
-            nuevo_prov_input = st.text_input("Nombre del Proveedor", placeholder="Ej: Distribuidora Mayorista SRL")
-            btn_guardar_prov = st.form_submit_button("Guardar Proveedor")
-            
-            if btn_guardar_prov:
-                if nuevo_prov_input.strip() == "":
-                    st.error("Por favor, ingresá un nombre válido.")
-                else:
-                    try:
-                        conexion = sqlite3.connect(DB_PATH)
-                        cursor = conexion.cursor()
-                        cursor.execute("INSERT INTO proveedores_extra (nombre) VALUES (?)", (nuevo_prov_input.strip(),))
-                        conexion.commit()
-                        conexion.close()
-                        st.success(f"¡Proveedor '{nuevo_prov_input.strip()}' agregado exitosamente!")
-                        st.rerun()
-                    except sqlite3.IntegrityError:
-                        st.warning("Este proveedor ya se encuentra registrado.")
-                    except Exception as e:
-                        st.error(f"Error al guardar: {e}")
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("#### Proveedores registrados actualmente en el sistema:")
-        if lista_proveedores_total:
-            df_prov_list = pd.DataFrame(lista_proveedores_total, columns=["Proveedor"])
-            st.dataframe(df_prov_list, use_container_width=True, hide_index=True)
-        else:
-            st.info("No hay proveedores cargados todavía.")
-
+    st.caption("ℹ️ Vista general del estado actual de la mercadería sincronizada.")
     st.markdown("<br>", unsafe_allow_html=True)
 
     if df_productos.empty:
@@ -509,15 +471,12 @@ with tab_dash:
         st.markdown("<br><br>", unsafe_allow_html=True)
         
         with st.expander("🔍 Ventana de Búsqueda y Filtros Avanzados"):
-            f_col1, f_col2, f_col3 = st.columns(3)
+            f_col1, f_col2 = st.columns(2)
             with f_col1:
                 busqueda = st.text_input("Filtrar por SKU o Descripción:", placeholder="Escribí aquí para buscar...")
             with f_col2:
                 rubros_disponibles = ["Todos"] + sorted(df_productos['Rubro'].dropna().unique().tolist()) if 'Rubro' in df_productos.columns else ["Todos"]
                 filtro_rubro_dash = st.selectbox("Filtrar por Rubro:", rubros_disponibles)
-            with f_col3:
-                proveedores_disponibles = ["Todos"] + lista_proveedores_total
-                filtro_proveedor_dash = st.selectbox("Filtrar por Proveedor:", proveedores_disponibles)
 
         df_filtrado = df_productos.copy()
         if 'busqueda' in locals() and busqueda:
@@ -527,8 +486,6 @@ with tab_dash:
             ]
         if 'filtro_rubro_dash' in locals() and filtro_rubro_dash != "Todos":
             df_filtrado = df_filtrado[df_filtrado['Rubro'] == filtro_rubro_dash]
-        if 'filtro_proveedor_dash' in locals() and filtro_proveedor_dash != "Todos":
-            df_filtrado = df_filtrado[df_filtrado['Proveedor'] == filtro_proveedor_dash]
 
         st.markdown("<br>", unsafe_allow_html=True)
         st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
@@ -653,7 +610,7 @@ with tab_movimientos:
     with col_mfech:
         fecha_recepcion_dia = st.date_input("📅 Fecha de Recepción", datetime.date.today(), key="f_rec_dia")
     with col_mprov:
-        proveedor_recepcion_global = st.selectbox("📦 Proveedor de la Recepción", ["General"] + lista_proveedores_total, key="prov_rec_global")
+        proveedor_recepcion_global = st.selectbox("📦 Proveedor (Nombre Fantasía)", lista_nombres_fantasia, key="prov_rec_global")
 
     st.markdown("#### 👥 Responsables del Proceso")
     r_col1, r_col2, r_col3, r_col4, r_col5 = st.columns(5)
@@ -967,7 +924,7 @@ with tab_historial:
         if df_mov.empty:
             st.info("No hay recepciones ni movimientos registrados todavía.")
         else:
-            df_mov['Mov_Label'] = df_mov.apply(lambda r: f"Fecha: {r['Fecha']} | Hora: {r['Hora']} | Prov: {r['Proveedor']}", axis=1)
+            df_mov['Mov_Label'] = df_mov.apply(lambda r: f"Fecha: {r['Fecha']} | Hora: {r['Hora']} | Proveedor (Fantasía): {r['Proveedor']}", axis=1)
             movs_disponibles = ["Todas las recepciones (Historial Completo)"] + list(df_mov['Mov_Label'].unique())
             
             filtro_mov_tanda = st.selectbox("🔍 Seleccionar Planilla / Recepción a visualizar o exportar:", movs_disponibles)
@@ -1011,7 +968,6 @@ with tab_historial:
                 st.markdown("<br>", unsafe_allow_html=True)
                 st.info(f"📎 **Comprobante / Remito adjunto de esta recepción:** `{Path(ruta_remito_actual).name}`")
                 
-                # Visualización directa en Streamlit
                 if Path(ruta_remito_actual).suffix.lower() in ['.png', '.jpg', '.jpeg']:
                     st.image(ruta_remito_actual, caption="Imagen del Remito Adjunto", use_container_width=True)
 
