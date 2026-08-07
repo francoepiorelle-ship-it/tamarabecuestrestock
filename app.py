@@ -231,8 +231,6 @@ def convertir_multiples_tandas_a_excel(lista_de_dfs_con_meta):
     return output.getvalue()
 
 def convertir_multiples_tandas_a_html_impresion(lista_de_tandas_info, titulo_reporte):
-    # lista_de_tandas_info contiene diccionarios con 'df', 'meta_data', 'titulo_tanda', 'fecha', etc.
-    # Ordenar por fecha y hora ascendente o descendente para que la separación mensual y diaria sea impecable
     bloques_html = ""
     mes_actual = None
     dia_actual = None
@@ -243,22 +241,18 @@ def convertir_multiples_tandas_a_html_impresion(lista_de_tandas_info, titulo_rep
         t_tanda = item['titulo_tanda']
         fecha_str = item.get('fecha', '')
         
-        # Extraer mes y día para los separadores jerárquicos
         mes_str = fecha_str[:7] if len(fecha_str) >= 7 else "General"
-        
         separador_jerarquico_html = ""
         
-        # Si cambiamos de mes, agregamos un encabezado de Mes
         if mes_str != mes_actual:
             mes_actual = mes_str
-            dia_actual = None # Reiniciar día al cambiar de mes
+            dia_actual = None
             separador_jerarquico_html += f"""
             <div class="mes-separator">
                 <h2>📅 Mes: {mes_actual}</h2>
             </div>
             """
             
-        # Si cambiamos de día dentro del mes, agregamos un encabezado de Día
         if fecha_str != dia_actual:
             dia_actual = fecha_str
             separador_jerarquico_html += f"""
@@ -546,7 +540,10 @@ with tab_dash:
             df_filtrado = df_filtrado[df_filtrado['Rubro'] == filtro_rubro_dash]
 
         st.markdown("<br>", unsafe_allow_html=True)
-        st.dataframe(df_filtrado, use_container_width=True, hide_index=True)
+        
+        # Ocultar la columna Proveedor en la vista del Dashboard General
+        df_dash_mostrar = df_filtrado.drop(columns=['Proveedor'], errors='ignore')
+        st.dataframe(df_dash_mostrar, use_container_width=True, hide_index=True)
 
 # ==========================================
 # 2. SOLAPA: CONTROL DE STOCK
@@ -922,7 +919,6 @@ with tab_historial:
                         "titulo_tanda": f"Control de Stock - {tanda_lbl}"
                     })
                 
-                # Ordenar la lista para el PDF por fecha y hora ascendente
                 lista_tandas_para_exportar = sorted(lista_tandas_para_exportar, key=lambda x: (x['fecha'], x['hora']))
 
                 col_exp1, col_exp2 = st.columns(2)
@@ -1068,7 +1064,6 @@ with tab_historial:
                     })
                 conexion.close()
                 
-                # Ordenar la lista para el PDF por fecha y hora ascendente
                 lista_recepciones_para_exportar = sorted(lista_recepciones_para_exportar, key=lambda x: (x['fecha'], x['hora']))
 
                 st.markdown("<br>", unsafe_allow_html=True)
