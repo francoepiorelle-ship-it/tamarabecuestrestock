@@ -1,3 +1,3 @@
-Set WShell = CreateObject("WScript.Shell")
-' El 0 al final indica que la ventana se ejecuta de forma oculta (invisible)
-WShell.Run "cmd /c ""C:\Users\tamar\OneDrive\Escritorio\StockControl\ejecutar.bat""", 0, False
+Set WshShell = CreateObject("WScript.Shell")
+WshShell.Run chr(34) & "C:\Users\tamar\OneDrive\Escritorio\StockControl\ejecutar_sync.bat" & chr(34), 0, False
+Set WshShell = Nothing

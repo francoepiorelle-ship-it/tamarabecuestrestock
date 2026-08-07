@@ -1,0 +1,48 @@
+import json
+import os
+import streamlit as st
+
+# Nombre del archivo donde se guardarán los datos de forma permanente
+ARCHIVO_DATOS = "datos_guardados.json"
+
+
+# Función para cargar los datos al iniciar la app
+def cargar_datos():
+  if os.path.exists(ARCHIVO_DATOS):
+    with open(ARCHIVO_DATOS, "r", encoding="utf-8") as f:
+      return json.load(f)
+  return {"items": []}  # Estructura inicial por defecto
+
+
+# Función para guardar los datos en el disco
+def guardar_datos(datos):
+  with open(ARCHIVO_DATOS, "w", encoding="utf-8") as f:
+    json.dump(datos, f, ensure_ascii=False, indent=4)
+
+
+st.title("Guardado Permanente en Streamlit")
+
+# 1. Cargamos los datos en st.session_state si aún no están cargados en esta sesión
+if "datos" not in st.session_state:
+  st.session_state.datos = cargar_datos()
+
+# 2. Interfaz para agregar un nuevo elemento
+nuevo_item = st.text_input("Escribe algo para guardar:")
+
+if st.button("Guardar permanente"):
+  if nuevo_item.strip():
+    # Agregamos a la lista en memoria
+    st.session_state.datos["items"].append(nuevo_item)
+    # Guardamos físicamente en el archivo JSON
+    guardar_datos(st.session_state.datos)
+    st.success("¡Guardado correctamente de forma permanente!")
+  else:
+    st.warning("El campo no puede estar vacío.")
+
+# 3. Mostrar los elementos guardados
+st.subheader("Elementos guardados:")
+if st.session_state.datos["items"]:
+  for i, item in enumerate(st.session_state.datos["items"], 1):
+    st.write(f"{i}. {item}")
+else:
+  st.info("No hay elementos guardados todavía.")
