@@ -756,8 +756,9 @@ with tab_movimientos:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
+    # --- SECCIÓN 1: BUSCADOR HABITUAL ---
     with st.container():
-        st.markdown("#### 🔍 Buscador Individual")
+        st.markdown("#### 🔍 Buscador de Productos Existentes")
         
         if not df_productos.empty:
             opciones_skus_dict = {f"{row['Descripción']} | SKU: {row['SKU']} | Rubro: {row.get('Rubro', 'N/A')} | Subrubro: {row.get('Subrubro', 'N/A')}": row for _, row in df_productos.iterrows()}
@@ -769,7 +770,7 @@ with tab_movimientos:
         with col_b_sel:
             producto_individual_elegido = st.selectbox("Buscar Producto", lista_opciones_prod, label_visibility="collapsed")
         with col_b_btn:
-            if st.button("➕ Agregar a la lista"):
+            if st.button("➕ Agregar de la lista"):
                 if producto_individual_elegido != "Seleccione un producto para agregar..." and producto_individual_elegido != "No hay productos disponibles":
                     datos_prod = opciones_skus_dict[producto_individual_elegido]
                     sku_val = str(datos_prod['SKU'])
@@ -793,11 +794,51 @@ with tab_movimientos:
                     else:
                         st.warning("El producto ya se encuentra en la lista.")
 
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # --- SECCIÓN 2: AGREGAR PRODUCTO NUEVO (SOLO PARA LA PLANILLA) ---
+    with st.expander("➕ Agregar Producto Nuevo (Solo para esta Planilla / Remito)"):
+        st.caption("Usá esta opción para añadir mercadería nueva que no esté registrada en la base de datos principal.")
+        with st.form("form_producto_nuevo_planilla", clear_on_submit=True):
+            f_col_n1, f_col_n2 = st.columns(2)
+            with f_col_n1:
+                nuevo_sku = st.text_input("Código / SKU Nuevo", placeholder="Ej: NUEVO-001")
+                nuevo_rubro = st.text_input("Rubro (Opcional)", placeholder="Ej: Varios")
+            with f_col_n2:
+                nuevo_desc = st.text_input("Descripción / Nombre del Producto *", placeholder="Ej: Producto Importado Nuevo")
+                nuevo_subrubro = st.text_input("Subrubro (Opcional)", placeholder="Ej: General")
+            
+            f_col_n3, f_col_n4 = st.columns(2)
+            with f_col_n3:
+                nueva_cantidad = st.number_input("Cantidad", min_value=1, step=1, value=1)
+            with f_col_n4:
+                nuevo_precio_u = st.number_input("Precio Unitario ($)", min_value=0.0, step=100.0, format="%.2f")
+
+            st.markdown("<br>", unsafe_allow_html=True)
+            btn_add_nuevo = st.form_submit_button("Añadir producto nuevo a la planilla")
+
+            if btn_add_nuevo:
+                if not nuevo_desc.strip():
+                    st.error("Por favor, ingresá al menos la descripción del producto.")
+                else:
+                    sku_final_nuevo = nuevo_sku.strip() if nuevo_sku.strip() else f"NUEVO-{len(st.session_state.tabla_recepcion_items)+1}"
+                    
+                    st.session_state.tabla_recepcion_items.append({
+                        "SKU": sku_final_nuevo,
+                        "Producto": nuevo_desc.strip(),
+                        "Rubro": nuevo_rubro.strip() if nuevo_rubro else "Nuevo / Remito",
+                        "Subrubro": nuevo_subrubro.strip() if nuevo_subrubro else "",
+                        "Cantidad": int(nueva_cantidad),
+                        "Observación": f"Precio Unit. Temporal: ${nuevo_precio_u:,.2f}"
+                    })
+                    st.success(f"¡Producto nuevo '{nuevo_desc.strip()}' agregado a la planilla correctamente!")
+                    st.rerun()
+
     st.markdown("<br><hr><br>", unsafe_allow_html=True)
     st.markdown("#### 📋 Lista de Productos a Recibir (Control de Cantidades)")
 
     if not st.session_state.tabla_recepcion_items:
-        st.info("ℹ️ La lista está vacía. Buscá y agregá productos utilizando el buscador de arriba.")
+        st.info("ℹ️ La lista está vacía. Buscá productos existentes o agregá nuevos utilizando los paneles superiores.")
     else:
         indices_a_borrar = []
         for idx, item in enumerate(st.session_state.tabla_recepcion_items):
@@ -833,9 +874,9 @@ with tab_movimientos:
 
         st.markdown("<br>", unsafe_allow_html=True)
         
-        # --- NUEVA SECCIÓN: REMITO DIGITAL CON PRECIOS ---
+        # --- SECCIÓN: REMITO DIGITAL CON PRECIOS ---
         with st.expander("🧾 Generación de Remito Digital (Precios y Totales)", expanded=True):
-            st.caption("Ingresá el precio unitario de cada producto para calcular subtotales, total general y generar el remito digital listo para imprimir o descargar.")
+            st.caption("Verificá y ajustá el precio unitario de cada producto para calcular subtotales, el total general y generar el remito digital.")
             
             items_con_precios_temp = []
             total_remito_digital = 0.0
