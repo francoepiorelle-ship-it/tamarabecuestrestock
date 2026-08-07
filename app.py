@@ -74,6 +74,19 @@ def asegurar_base_datos():
             fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
+    # Tabla borrador para evitar pérdida de datos por recargas o doble clic en Recepción
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS recepcion_borrador (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            sku TEXT,
+            producto TEXT,
+            rubro TEXT,
+            subrubro TEXT,
+            cantidad REAL,
+            observacion TEXT,
+            precio_unitario REAL
+        )
+    """)
     
     cursor.execute("PRAGMA table_info(productos)")
     cols_prod = [col[1] for col in cursor.fetchall()]
@@ -180,6 +193,61 @@ def obtener_lista_nombres_fantasia():
     if not nombres:
         nombres = ["Sin Proveedor / General"]
     return sorted(nombres)
+
+def cargar_borrador_recepcion():
+    asegurar_base_datos()
+    conexion = sqlite3.connect(DB_PATH)
+    try:
+        cursor = conexion.cursor()
+        cursor.execute("SELECT sku, producto, rubro, subrubro, cantidad, observacion, precio_unitario FROM recepcion_borrador")
+        filas = cursor.fetchall()
+        items = []
+        for f in filas:
+            items.append({
+                "SKU": f[0],
+                "Producto": f[1],
+                "Rubro": f[2],
+                "Subrubro": f[3],
+                "Cantidad": f[4],
+                "Observación": f[5] if f[5] else "",
+                "Precio Unitario": f[6] if f[6] is not None else 0.0
+            })
+    except Exception:
+        items = []
+    conexion.close()
+    return items
+
+def guardar_item_borrador(item):
+    asegurar_base_datos()
+    conexion = sqlite3.connect(DB_PATH)
+    cursor = conexion.cursor()
+    cursor.execute("""
+        INSERT INTO recepcion_borrador (sku, producto, rubro, subrubro, cantidad, observacion, precio_unitario)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (item['SKU'], item['Producto'], item['Rubro'], item['Subrubro'], item['Cantidad'], item['Observación'], item.get('Precio Unitario', 0.0)))
+    conexion.commit()
+    conexion.close()
+
+def actualizar_borrador_en_db(items):
+    asegurar_base_datos()
+    conexion = sqlite3.connect(DB_PATH)
+    cursor = conexion.cursor()
+    cursor.execute("DELETE FROM recepcion_borrador")
+    for item in items:
+        cursor.execute("""
+            INSERT INTO recepcion_borrador (sku, producto, rubro, subrubro, cantidad, observacion, precio_unitario)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (item['SKU'], item['Producto'], item['Rubro'], item['Subrubro'], item['Cantidad'], item['Observación'], item.get('Precio Unitario', 0.0)))
+    conexion.commit()
+    conexion.close()
+
+def vaciar_borrador_db():
+    asegurar_base_datos()
+    conexion = sqlite3.connect(DB_PATH)
+    cursor = conexion.cursor()
+    cursor.execute("DELETE FROM recepcion_borrador")
+    conexion.commit()
+    conexion.close()
 
 def cargar_historial():
     conexion = sqlite3.connect(DB_PATH)
@@ -432,8 +500,8 @@ def generar_html_remito_digital(proveedor, fecha, items_con_precios, total_gener
 if 'lista_control' not in st.session_state:
     st.session_state.lista_control = []
 
-if 'tabla_recepcion_items' not in st.session_state:
-    st.session_state.tabla_recepcion_items = []
+# Sincronizamos la tabla de recepción directamente desde el borrador persistente en SQLite
+st.session_state.tabla_recepcion_items = cargar_borrador_recepcion()
 
 if 'ultimo_movimiento_guardado' not in st.session_state:
     st.session_state.ultimo_movimiento_guardado = []
@@ -730,7 +798,7 @@ with tab_control:
 # ==========================================
 with tab_movimientos:
     st.markdown("### Recepción de Mercadería")
-    st.caption("Completá obligatoriamente la fecha, el proveedor y todos los responsables del proceso antes de guardar.")
+    st.caption("Completá obligatoriamente la fecha, el proveedor y todos los responsables del proceso antes de guardar. Todo lo que agregues se guarda automáticamente en la base de datos para evitar pérdidas por recargas o doble clic.")
     st.markdown("<br>", unsafe_allow_html=True)
     
     col_mfech, col_mprov = st.columns(2)
@@ -778,17 +846,21 @@ with tab_movimientos:
                     rubro_val = str(datos_prod.get('Rubro', ''))
                     subrubro_val = str(datos_prod.get('Subrubro', ''))
 
-                    ya_existe = any(item['SKU'] == sku_val for item in st.session_state.tabla_recepcion_items)
+                    # Verificamos si ya está en el borrador persistente
+                    items_actuales = cargar_borrador_recepcion()
+                    ya_existe = any(item['SKU'] == sku_val for item in items_actuales)
                     
                     if not ya_existe:
-                        st.session_state.tabla_recepcion_items.append({
+                        nuevo_item = {
                             "SKU": sku_val,
                             "Producto": desc_val,
                             "Rubro": rubro_val,
                             "Subrubro": subrubro_val,
                             "Cantidad": 1,
-                            "Observación": ""
-                        })
+                            "Observación": "",
+                            "Precio Unitario": 0.0
+                        }
+                        guardar_item_borrador(nuevo_item)
                         st.success(f"¡Agregado: {desc_val}!")
                         st.rerun()
                     else:
@@ -821,26 +893,34 @@ with tab_movimientos:
                 if not nuevo_desc.strip():
                     st.error("Por favor, ingresá al menos la descripción del producto.")
                 else:
-                    sku_final_nuevo = nuevo_sku.strip() if nuevo_sku.strip() else f"NUEVO-{len(st.session_state.tabla_recepcion_items)+1}"
+                    items_actuales = cargar_borrador_recepcion()
+                    sku_final_nuevo = nuevo_sku.strip() if nuevo_sku.strip() else f"NUEVO-{len(items_actuales)+1}"
                     
-                    st.session_state.tabla_recepcion_items.append({
+                    nuevo_item = {
                         "SKU": sku_final_nuevo,
                         "Producto": nuevo_desc.strip(),
                         "Rubro": nuevo_rubro.strip() if nuevo_rubro else "Nuevo / Remito",
                         "Subrubro": nuevo_subrubro.strip() if nuevo_subrubro else "",
                         "Cantidad": int(nueva_cantidad),
-                        "Observación": f"Precio Unit. Temporal: ${nuevo_precio_u:,.2f}"
-                    })
+                        "Observación": "",
+                        "Precio Unitario": float(nuevo_precio_u)
+                    }
+                    guardar_item_borrador(nuevo_item)
                     st.success(f"¡Producto nuevo '{nuevo_desc.strip()}' agregado a la planilla correctamente!")
                     st.rerun()
 
     st.markdown("<br><hr><br>", unsafe_allow_html=True)
     st.markdown("#### 📋 Lista de Productos a Recibir (Control de Cantidades)")
 
+    # Recargamos la lista desde la base de datos persistente
+    st.session_state.tabla_recepcion_items = cargar_borrador_recepcion()
+
     if not st.session_state.tabla_recepcion_items:
         st.info("ℹ️ La lista está vacía. Buscá productos existentes o agregá nuevos utilizando los paneles superiores.")
     else:
+        hubo_cambios_en_tabla = False
         indices_a_borrar = []
+        
         for idx, item in enumerate(st.session_state.tabla_recepcion_items):
             with st.container():
                 cols_item = st.columns([3, 1.5, 1.5, 0.8])
@@ -852,16 +932,20 @@ with tab_movimientos:
                         if st.button("➖", key=f"btn_menos_{idx}"):
                             if st.session_state.tabla_recepcion_items[idx]['Cantidad'] > 1:
                                 st.session_state.tabla_recepcion_items[idx]['Cantidad'] -= 1
+                                actualizar_borrador_en_db(st.session_state.tabla_recepcion_items)
                                 st.rerun()
                     with c_cant:
                         st.markdown(f"<p style='text-align: center; font-weight: bold; margin-top: 5px;'>{int(item['Cantidad'])}</p>", unsafe_allow_html=True)
                     with c_mas:
                         if st.button("➕", key=f"btn_mas_{idx}"):
                             st.session_state.tabla_recepcion_items[idx]['Cantidad'] += 1
+                            actualizar_borrador_en_db(st.session_state.tabla_recepcion_items)
                             st.rerun()
                 with cols_item[2]:
                     obs_val = st.text_input("Obs", value=item['Observación'], placeholder="Observación...", key=f"obs_{idx}", label_visibility="collapsed")
-                    st.session_state.tabla_recepcion_items[idx]['Observación'] = obs_val
+                    if obs_val != item['Observación']:
+                        st.session_state.tabla_recepcion_items[idx]['Observación'] = obs_val
+                        actualizar_borrador_en_db(st.session_state.tabla_recepcion_items)
                 with cols_item[3]:
                     if st.button("🗑️", key=f"del_item_{idx}"):
                         indices_a_borrar.append(idx)
@@ -870,6 +954,7 @@ with tab_movimientos:
         if indices_a_borrar:
             for i in sorted(indices_a_borrar, reverse=True):
                 st.session_state.tabla_recepcion_items.pop(i)
+            actualizar_borrador_en_db(st.session_state.tabla_recepcion_items)
             st.rerun()
 
         st.markdown("<br>", unsafe_allow_html=True)
@@ -886,7 +971,11 @@ with tab_movimientos:
                 with col_p1:
                     st.markdown(f"<b>{item['Producto']}</b><br><span style='font-size:11px; color:#64748b;'>SKU: {item['SKU']} | Cant: {int(item['Cantidad'])}</span>", unsafe_allow_html=True)
                 with col_p2:
-                    precio_u = st.number_input("Precio Unitario ($)", min_value=0.0, step=100.0, format="%.2f", key=f"precio_u_{idx}")
+                    precio_actual = float(item.get('Precio Unitario', 0.0))
+                    precio_u = st.number_input("Precio Unitario ($)", min_value=0.0, step=100.0, value=precio_actual, format="%.2f", key=f"precio_u_{idx}")
+                    if precio_u != precio_actual:
+                        st.session_state.tabla_recepcion_items[idx]['Precio Unitario'] = precio_u
+                        actualizar_borrador_en_db(st.session_state.tabla_recepcion_items)
                 with col_p3:
                     subt = item['Cantidad'] * precio_u
                     total_remito_digital += subt
@@ -961,12 +1050,16 @@ with tab_movimientos:
                     conexion.commit()
                     conexion.close()
 
+                    # Limpiamos el borrador de la base de datos ya que se guardó con éxito en el historial
+                    vaciar_borrador_db()
+
                     st.session_state.ultimo_movimiento_guardado = lista_para_etiquetas
                     st.session_state.tabla_recepcion_items = []
                     st.success(f"¡Recepción completa guardada exitosamente a las {hora_arg}!")
                     st.rerun()
         with col_acc2:
             if st.button("🧹 Vaciar Lista"):
+                vaciar_borrador_db()
                 st.session_state.tabla_recepcion_items = []
                 st.rerun()
 
