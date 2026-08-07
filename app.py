@@ -74,7 +74,6 @@ def asegurar_base_datos():
             fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
-    # Tabla borrador para evitar pérdida de datos por recargas o doble clic en Recepción
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS recepcion_borrador (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -500,7 +499,6 @@ def generar_html_remito_digital(proveedor, fecha, items_con_precios, total_gener
 if 'lista_control' not in st.session_state:
     st.session_state.lista_control = []
 
-# Sincronizamos la tabla de recepción directamente desde el borrador persistente en SQLite
 st.session_state.tabla_recepcion_items = cargar_borrador_recepcion()
 
 if 'ultimo_movimiento_guardado' not in st.session_state:
@@ -798,7 +796,7 @@ with tab_control:
 # ==========================================
 with tab_movimientos:
     st.markdown("### Recepción de Mercadería")
-    st.caption("Completá obligatoriamente la fecha, el proveedor y todos los responsables del proceso antes de guardar. Todo lo que agregues se guarda automáticamente en la base de datos para evitar pérdidas por recargas o doble clic.")
+    st.caption("Escribí la cantidad exacta de cada producto. Todo se guarda automáticamente en borrador para evitar pérdidas.")
     st.markdown("<br>", unsafe_allow_html=True)
     
     col_mfech, col_mprov = st.columns(2)
@@ -867,7 +865,7 @@ with tab_movimientos:
 
     st.markdown("<br>", unsafe_allow_html=True)
 
-    # --- SECCIÓN 2: AGREGAR PRODUCTO NUEVO (SOLO PARA LA PLANILLA) ---
+    # --- SECCIÓN 2: AGREGAR PRODUCTO NUEVO ---
     with st.expander("➕ Agregar Producto Nuevo (Solo para esta Planilla / Remito)"):
         st.caption("Usá esta opción para añadir mercadería nueva que no esté registrada en la base de datos principal.")
         with st.form("form_producto_nuevo_planilla", clear_on_submit=True):
@@ -909,7 +907,7 @@ with tab_movimientos:
                     st.rerun()
 
     st.markdown("<br><hr><br>", unsafe_allow_html=True)
-    st.markdown("#### 📋 Lista de Productos a Recibir (Control de Cantidades)")
+    st.markdown("#### 📋 Lista de Productos a Recibir (Ingreso por Cantidad Exacta)")
 
     st.session_state.tabla_recepcion_items = cargar_borrador_recepcion()
 
@@ -924,20 +922,19 @@ with tab_movimientos:
                 with cols_item[0]:
                     st.markdown(f"<b>{item['Producto']}</b><br><span style='font-size:11px; color:#64748b;'>SKU: {item['SKU']} | {item['Rubro']}</span>", unsafe_allow_html=True)
                 with cols_item[1]:
-                    c_menos, c_cant, c_mas = st.columns([1, 1.5, 1])
-                    with c_menos:
-                        if st.button("➖", key=f"btn_menos_{idx}"):
-                            if st.session_state.tabla_recepcion_items[idx]['Cantidad'] > 1:
-                                st.session_state.tabla_recepcion_items[idx]['Cantidad'] -= 1
-                                actualizar_borrador_en_db(st.session_state.tabla_recepcion_items)
-                                st.rerun()
-                    with c_cant:
-                        st.markdown(f"<p style='text-align: center; font-weight: bold; margin-top: 5px;'>{int(item['Cantidad'])}</p>", unsafe_allow_html=True)
-                    with c_mas:
-                        if st.button("➕", key=f"btn_mas_{idx}"):
-                            st.session_state.tabla_recepcion_items[idx]['Cantidad'] += 1
-                            actualizar_borrador_en_db(st.session_state.tabla_recepcion_items)
-                            st.rerun()
+                    # CAMBIO CLAVE: Reemplazo de botones + y - por input numérico directo para cantidad exacta
+                    cant_actual = int(item['Cantidad'])
+                    nueva_cant = st.number_input(
+                        "Cantidad", 
+                        min_value=1, 
+                        step=1, 
+                        value=cant_actual, 
+                        key=f"cant_input_{idx}", 
+                        label_visibility="collapsed"
+                    )
+                    if nueva_cant != cant_actual:
+                        st.session_state.tabla_recepcion_items[idx]['Cantidad'] = int(nueva_cant)
+                        actualizar_borrador_en_db(st.session_state.tabla_recepcion_items)
                 with cols_item[2]:
                     obs_val = st.text_input("Obs", value=item['Observación'], placeholder="Observación...", key=f"obs_{idx}", label_visibility="collapsed")
                     if obs_val != item['Observación']:
@@ -956,7 +953,7 @@ with tab_movimientos:
 
         st.markdown("<br>", unsafe_allow_html=True)
         
-        # --- SECCIÓN: REMITO DIGITAL CON PRECIOS (OPCIONAL / ACTIVABLE MEDIANTE TOGGLE) ---
+        # --- SECCIÓN: REMITO DIGITAL CON PRECIOS ---
         with st.expander("🧾 Generación de Remito Digital (Precios y Totales)"):
             st.caption("Activá el interruptor solo si necesitás cargar precios unitarios y emitir un remito digital con totales para este ingreso.")
             
