@@ -74,8 +74,6 @@ def asegurar_base_datos():
             fecha_registro TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
-<<<<<<< HEAD
-=======
     # Tabla borrador para evitar pérdida de datos por recargas o doble clic en Recepción
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS recepcion_borrador (
@@ -89,7 +87,6 @@ def asegurar_base_datos():
             precio_unitario REAL
         )
     """)
->>>>>>> f64bf5327a86a284299dfa417c3e5b99e47dc82e
     
     cursor.execute("PRAGMA table_info(productos)")
     cols_prod = [col[1] for col in cursor.fetchall()]
@@ -196,8 +193,6 @@ def obtener_lista_nombres_fantasia():
     if not nombres:
         nombres = ["Sin Proveedor / General"]
     return sorted(nombres)
-<<<<<<< HEAD
-=======
 
 def cargar_borrador_recepcion():
     asegurar_base_datos()
@@ -253,7 +248,6 @@ def vaciar_borrador_db():
     cursor.execute("DELETE FROM recepcion_borrador")
     conexion.commit()
     conexion.close()
->>>>>>> f64bf5327a86a284299dfa417c3e5b99e47dc82e
 
 def cargar_historial():
     conexion = sqlite3.connect(DB_PATH)
@@ -295,30 +289,6 @@ def convertir_df_a_excel(df):
     processed_data = output.getvalue()
     return processed_data
 
-<<<<<<< HEAD
-def convertir_df_a_html_impresion(df, titulo_reporte, meta_data=None):
-    meta_html = ""
-    if meta_data:
-        meta_html = f"""
-        <div class="meta-box">
-            <table class="meta-table">
-                <tr>
-                    <td><b>Fecha:</b> {meta_data.get('fecha', '-')}</td>
-                    <td><b>Proveedor (Nombre Fantasía):</b> {meta_data.get('proveedor', '-')}</td>
-                </tr>
-                <tr>
-                    <td><b>1) Conteo inicial:</b> {meta_data.get('c1', '-')}</td>
-                    <td><b>2) Control de calidad:</b> {meta_data.get('c2', '-')}</td>
-                </tr>
-                <tr>
-                    <td><b>3) Cotejo con remito:</b> {meta_data.get('c3', '-')}</td>
-                    <td><b>4) Etiquetado SKU:</b> {meta_data.get('c4', '-')}</td>
-                </tr>
-                <tr>
-                    <td colspan="2"><b>5) Ubicación depósito:</b> {meta_data.get('c5', '-')}</td>
-                </tr>
-            </table>
-=======
 def convertir_multiples_tandas_a_excel(lista_de_dfs_con_meta):
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
@@ -347,7 +317,7 @@ def convertir_multiples_tandas_a_html_impresion(lista_de_tandas_info, titulo_rep
             dia_actual = None
             separador_jerarquico_html += f"""
             <div class="mes-separator">
-                <h2>📅 Mes: {mes_actual}</h2>
+                <h2>Mes: {mes_actual}</h2>
             </div>
             """
             
@@ -355,7 +325,7 @@ def convertir_multiples_tandas_a_html_impresion(lista_de_tandas_info, titulo_rep
             dia_actual = fecha_str
             separador_jerarquico_html += f"""
             <div class="dia-separator">
-                <h3>📌 Día: {dia_actual}</h3>
+                <h3>Día: {dia_actual}</h3>
             </div>
             """
 
@@ -413,7 +383,6 @@ def convertir_multiples_tandas_a_html_impresion(lista_de_tandas_info, titulo_rep
             {meta_html}
             {df.to_html(index=False, classes='data-table')}
             {remito_html_seccion}
->>>>>>> f64bf5327a86a284299dfa417c3e5b99e47dc82e
         </div>
         """
 
@@ -877,7 +846,6 @@ with tab_movimientos:
                     rubro_val = str(datos_prod.get('Rubro', ''))
                     subrubro_val = str(datos_prod.get('Subrubro', ''))
 
-                    # Verificamos si ya está en el borrador persistente
                     items_actuales = cargar_borrador_recepcion()
                     ya_existe = any(item['SKU'] == sku_val for item in items_actuales)
                     
@@ -943,13 +911,11 @@ with tab_movimientos:
     st.markdown("<br><hr><br>", unsafe_allow_html=True)
     st.markdown("#### 📋 Lista de Productos a Recibir (Control de Cantidades)")
 
-    # Recargamos la lista desde la base de datos persistente
     st.session_state.tabla_recepcion_items = cargar_borrador_recepcion()
 
     if not st.session_state.tabla_recepcion_items:
         st.info("ℹ️ La lista está vacía. Buscá productos existentes o agregá nuevos utilizando los paneles superiores.")
     else:
-        hubo_cambios_en_tabla = False
         indices_a_borrar = []
         
         for idx, item in enumerate(st.session_state.tabla_recepcion_items):
@@ -1081,7 +1047,6 @@ with tab_movimientos:
                     conexion.commit()
                     conexion.close()
 
-                    # Limpiamos el borrador de la base de datos ya que se guardó con éxito en el historial
                     vaciar_borrador_db()
 
                     st.session_state.ultimo_movimiento_guardado = lista_para_etiquetas
@@ -1277,12 +1242,7 @@ with tab_historial:
         if df_mov.empty:
             st.info("No hay recepciones registradas todavía.")
         else:
-<<<<<<< HEAD
-            df_mov['Mov_Label'] = df_mov.apply(lambda r: f"Fecha: {r['Fecha']} | Hora: {r['Hora']} | Proveedor (Fantasía): {r['Proveedor']}", axis=1)
-            movs_disponibles = ["Todas las recepciones (Historial Completo)"] + list(df_mov['Mov_Label'].unique())
-=======
             df_mov['Mov_Label'] = df_mov.apply(lambda r: f"Fecha: {r['Fecha']} | Hora: {r['Hora']} | Proveedor: {r['Proveedor']}", axis=1)
->>>>>>> f64bf5327a86a284299dfa417c3e5b99e47dc82e
             
             modo_filtro_m = st.radio("Modo de selección:", ["Seleccionar por Recepción(es) específica(s)", "Seleccionar por Día completo", "Seleccionar por Mes completo"], horizontal=True, key="modo_m_stock")
             
@@ -1346,12 +1306,7 @@ with tab_historial:
                     })
                 conexion.close()
                 
-<<<<<<< HEAD
-                if Path(ruta_remito_actual).suffix.lower() in ['.png', '.jpg', '.jpeg']:
-                    st.image(ruta_remito_actual, caption="Imagen del Remito Adjunto", use_container_width=True)
-=======
                 lista_recepciones_para_exportar = sorted(lista_recepciones_para_exportar, key=lambda x: (x['fecha'], x['hora']))
->>>>>>> f64bf5327a86a284299dfa417c3e5b99e47dc82e
 
                 st.markdown("<br>", unsafe_allow_html=True)
                 
@@ -1398,3 +1353,4 @@ with tab_historial:
                                 )
                         else:
                             st.error("El archivo físico del remito ya no se encuentra en el servidor.")
+```[cite: 3]
