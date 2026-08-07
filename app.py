@@ -956,47 +956,51 @@ with tab_movimientos:
 
         st.markdown("<br>", unsafe_allow_html=True)
         
-        # --- SECCIÓN: REMITO DIGITAL CON PRECIOS ---
-        with st.expander("🧾 Generación de Remito Digital (Precios y Totales)", expanded=True):
-            st.caption("Verificá y ajustá el precio unitario de cada producto para calcular subtotales, el total general y generar el remito digital.")
+        # --- SECCIÓN: REMITO DIGITAL CON PRECIOS (OPCIONAL / ACTIVABLE MEDIANTE TOGGLE) ---
+        with st.expander("🧾 Generación de Remito Digital (Precios y Totales)"):
+            st.caption("Activá el interruptor solo si necesitás cargar precios unitarios y emitir un remito digital con totales para este ingreso.")
             
-            items_con_precios_temp = []
-            total_remito_digital = 0.0
+            activar_remito_digital = st.toggle("Activar Generación de Remito Digital", value=False, key="toggle_remito_digital")
             
-            for idx, item in enumerate(st.session_state.tabla_recepcion_items):
-                col_p1, col_p2, col_p3 = st.columns([3, 1.5, 1.5])
-                with col_p1:
-                    st.markdown(f"<b>{item['Producto']}</b><br><span style='font-size:11px; color:#64748b;'>SKU: {item['SKU']} | Cant: {int(item['Cantidad'])}</span>", unsafe_allow_html=True)
-                with col_p2:
-                    precio_actual = float(item.get('Precio Unitario', 0.0))
-                    precio_u = st.number_input("Precio Unitario ($)", min_value=0.0, step=100.0, value=precio_actual, format="%.2f", key=f"precio_u_{idx}")
-                    if precio_u != precio_actual:
-                        st.session_state.tabla_recepcion_items[idx]['Precio Unitario'] = precio_u
-                        actualizar_borrador_en_db(st.session_state.tabla_recepcion_items)
-                with col_p3:
-                    subt = item['Cantidad'] * precio_u
-                    total_remito_digital += subt
-                    st.markdown(f"<p style='margin-top: 28px; font-weight: bold; color: #0f172a;'>Subtotal: $ {subt:,.2f}</p>", unsafe_allow_html=True)
+            if activar_remito_digital:
+                st.markdown("<br>", unsafe_allow_html=True)
+                items_con_precios_temp = []
+                total_remito_digital = 0.0
                 
-                items_con_precios_temp.append({
-                    "SKU": item['SKU'],
-                    "Producto": item['Producto'],
-                    "Cantidad": item['Cantidad'],
-                    "Precio Unitario": precio_u
-                })
-                st.markdown("<hr style='margin: 5px 0; border-color: #f1f5f9;'>", unsafe_allow_html=True)
-            
-            st.markdown(f"<h3 style='text-align: right; color: #00b89f;'>TOTAL GENERAL: $ {total_remito_digital:,.2f}</h3>", unsafe_allow_html=True)
-            st.markdown("<br>", unsafe_allow_html=True)
-            
-            html_remito_generado = generar_html_remito_digital(proveedor_recepcion_global, str(fecha_recepcion_dia), items_con_precios_temp, total_remito_digital)
-            st.download_button(
-                label="🖨️ Descargar / Imprimir Remito Digital (PDF / HTML)",
-                data=html_remito_generado,
-                file_name=f"remito_digital_{proveedor_recepcion_global}_{fecha_recepcion_dia}.html",
-                mime="text/html",
-                key="btn_descargar_remito_digital"
-            )
+                for idx, item in enumerate(st.session_state.tabla_recepcion_items):
+                    col_p1, col_p2, col_p3 = st.columns([3, 1.5, 1.5])
+                    with col_p1:
+                        st.markdown(f"<b>{item['Producto']}</b><br><span style='font-size:11px; color:#64748b;'>SKU: {item['SKU']} | Cant: {int(item['Cantidad'])}</span>", unsafe_allow_html=True)
+                    with col_p2:
+                        precio_actual = float(item.get('Precio Unitario', 0.0))
+                        precio_u = st.number_input("Precio Unitario ($)", min_value=0.0, step=100.0, value=precio_actual, format="%.2f", key=f"precio_u_{idx}")
+                        if precio_u != precio_actual:
+                            st.session_state.tabla_recepcion_items[idx]['Precio Unitario'] = precio_u
+                            actualizar_borrador_en_db(st.session_state.tabla_recepcion_items)
+                    with col_p3:
+                        subt = item['Cantidad'] * precio_u
+                        total_remito_digital += subt
+                        st.markdown(f"<p style='margin-top: 28px; font-weight: bold; color: #0f172a;'>Subtotal: $ {subt:,.2f}</p>", unsafe_allow_html=True)
+                    
+                    items_con_precios_temp.append({
+                        "SKU": item['SKU'],
+                        "Producto": item['Producto'],
+                        "Cantidad": item['Cantidad'],
+                        "Precio Unitario": precio_u
+                    })
+                    st.markdown("<hr style='margin: 5px 0; border-color: #f1f5f9;'>", unsafe_allow_html=True)
+                
+                st.markdown(f"<h3 style='text-align: right; color: #00b89f;'>TOTAL GENERAL: $ {total_remito_digital:,.2f}</h3>", unsafe_allow_html=True)
+                st.markdown("<br>", unsafe_allow_html=True)
+                
+                html_remito_generado = generar_html_remito_digital(proveedor_recepcion_global, str(fecha_recepcion_dia), items_con_precios_temp, total_remito_digital)
+                st.download_button(
+                    label="🖨️ Descargar / Imprimir Remito Digital (PDF / HTML)",
+                    data=html_remito_generado,
+                    file_name=f"remito_digital_{proveedor_recepcion_global}_{fecha_recepcion_dia}.html",
+                    mime="text/html",
+                    key="btn_descargar_remito_digital"
+                )
 
         st.markdown("<br>", unsafe_allow_html=True)
         
