@@ -354,6 +354,80 @@ def convertir_multiples_tandas_a_html_impresion(lista_de_tandas_info, titulo_rep
     """
     return html
 
+def generar_html_remito_digital(proveedor, fecha, items_con_precios, total_general):
+    filas_html = ""
+    for item in items_con_precios:
+        subtotal = item['Cantidad'] * item['Precio Unitario']
+        filas_html += f"""
+        <tr>
+            <td>{item['SKU']}</td>
+            <td>{item['Producto']}</td>
+            <td style="text-align: center;">{int(item['Cantidad'])}</td>
+            <td style="text-align: right;">$ {item['Precio Unitario']:,.2f}</td>
+            <td style="text-align: right;">$ {subtotal:,.2f}</td>
+        </tr>
+        """
+        
+    html = f"""
+    <html>
+        <head>
+            <title>Remito Digital - GestionTamaraB</title>
+            <style>
+                @page {{ size: portrait; margin: 20mm; }}
+                body {{ font-family: Arial, sans-serif; margin: 0; color: #0f172a; }}
+                .header-box {{ border-bottom: 2px solid #00b89f; padding-bottom: 10px; margin-bottom: 20px; display: flex; justify-content: space-between; }}
+                .title {{ color: #00b89f; font-size: 24px; font-weight: bold; margin: 0; }}
+                .subtitle {{ color: #64748b; font-size: 14px; margin: 5px 0 0 0; }}
+                .info-box {{ background-color: #f8fafc; border: 1px solid #cbd5e1; padding: 12px; border-radius: 6px; margin-bottom: 20px; font-size: 14px; }}
+                table.remito-table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }}
+                table.remito-table th, table.remito-table td {{ border: 1px solid #cbd5e1; padding: 8px 12px; font-size: 13px; }}
+                table.remito-table th {{ background-color: #f1f5f9; color: #0f172a; text-align: left; }}
+                .total-box {{ text-align: right; margin-top: 20px; font-size: 18px; font-weight: bold; color: #0f172a; background-color: #f0fdf4; padding: 12px; border: 1px solid #00b89f; border-radius: 6px; }}
+            </style>
+        </head>
+        <body>
+            <div class="header-box">
+                <div>
+                    <h2 class="title">REMITO DIGITAL</h2>
+                    <p class="subtitle">GestionTamaraB - Control de Stock</p>
+                </div>
+                <div style="text-align: right;">
+                    <p style="margin: 0; font-size: 14px;"><b>Fecha:</b> {fecha}</p>
+                    <p style="margin: 5px 0 0 0; font-size: 14px;"><b>Emisión:</b> {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}</p>
+                </div>
+            </div>
+            
+            <div class="info-box">
+                <p style="margin: 0;"><b>Proveedor / Destino:</b> {proveedor}</p>
+            </div>
+            
+            <table class="remito-table">
+                <thead>
+                    <tr>
+                        <th>SKU</th>
+                        <th>Descripción del Producto</th>
+                        <th style="text-align: center;">Cantidad</th>
+                        <th style="text-align: right;">Precio Unitario</th>
+                        <th style="text-align: right;">Subtotal</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {filas_html}
+                </tbody>
+            </table>
+            
+            <div class="total-box">
+                TOTAL GENERAL: $ {total_general:,.2f}
+            </div>
+            
+            <script>
+                window.onload = function() {{ window.print(); }}
+            </script>
+        </body>
+    </html>
+    """
+    return html
+
 # Inicialización de estados
 if 'lista_control' not in st.session_state:
     st.session_state.lista_control = []
@@ -540,8 +614,6 @@ with tab_dash:
             df_filtrado = df_filtrado[df_filtrado['Rubro'] == filtro_rubro_dash]
 
         st.markdown("<br>", unsafe_allow_html=True)
-        
-        # Ocultar la columna Proveedor en la vista del Dashboard General
         df_dash_mostrar = df_filtrado.drop(columns=['Proveedor'], errors='ignore')
         st.dataframe(df_dash_mostrar, use_container_width=True, hide_index=True)
 
@@ -758,6 +830,46 @@ with tab_movimientos:
             for i in sorted(indices_a_borrar, reverse=True):
                 st.session_state.tabla_recepcion_items.pop(i)
             st.rerun()
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        # --- NUEVA SECCIÓN: REMITO DIGITAL CON PRECIOS ---
+        with st.expander("🧾 Generación de Remito Digital (Precios y Totales)", expanded=True):
+            st.caption("Ingresá el precio unitario de cada producto para calcular subtotales, total general y generar el remito digital listo para imprimir o descargar.")
+            
+            items_con_precios_temp = []
+            total_remito_digital = 0.0
+            
+            for idx, item in enumerate(st.session_state.tabla_recepcion_items):
+                col_p1, col_p2, col_p3 = st.columns([3, 1.5, 1.5])
+                with col_p1:
+                    st.markdown(f"<b>{item['Producto']}</b><br><span style='font-size:11px; color:#64748b;'>SKU: {item['SKU']} | Cant: {int(item['Cantidad'])}</span>", unsafe_allow_html=True)
+                with col_p2:
+                    precio_u = st.number_input("Precio Unitario ($)", min_value=0.0, step=100.0, format="%.2f", key=f"precio_u_{idx}")
+                with col_p3:
+                    subt = item['Cantidad'] * precio_u
+                    total_remito_digital += subt
+                    st.markdown(f"<p style='margin-top: 28px; font-weight: bold; color: #0f172a;'>Subtotal: $ {subt:,.2f}</p>", unsafe_allow_html=True)
+                
+                items_con_precios_temp.append({
+                    "SKU": item['SKU'],
+                    "Producto": item['Producto'],
+                    "Cantidad": item['Cantidad'],
+                    "Precio Unitario": precio_u
+                })
+                st.markdown("<hr style='margin: 5px 0; border-color: #f1f5f9;'>", unsafe_allow_html=True)
+            
+            st.markdown(f"<h3 style='text-align: right; color: #00b89f;'>TOTAL GENERAL: $ {total_remito_digital:,.2f}</h3>", unsafe_allow_html=True)
+            st.markdown("<br>", unsafe_allow_html=True)
+            
+            html_remito_generado = generar_html_remito_digital(proveedor_recepcion_global, str(fecha_recepcion_dia), items_con_precios_temp, total_remito_digital)
+            st.download_button(
+                label="🖨️ Descargar / Imprimir Remito Digital (PDF / HTML)",
+                data=html_remito_generado,
+                file_name=f"remito_digital_{proveedor_recepcion_global}_{fecha_recepcion_dia}.html",
+                mime="text/html",
+                key="btn_descargar_remito_digital"
+            )
 
         st.markdown("<br>", unsafe_allow_html=True)
         
